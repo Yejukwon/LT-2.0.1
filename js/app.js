@@ -12,6 +12,7 @@ const state = {
   excludedTags: new Set(),
   compareTags: new Set(),
   fixedPositions: new Map(),
+  viewMode: "full",
   currentGraph: null
 };
 
