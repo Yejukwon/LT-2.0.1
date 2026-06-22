@@ -11,6 +11,8 @@ const state = {
   minWeight: 1,
   excludedTags: new Set(),
   currentGraph: null
+  fixedPositions: new Map(),
+  compareTags: new Set(),
 };
 
 const svg = d3.select("#network");
