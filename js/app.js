@@ -491,20 +491,35 @@ function drawNetwork(graph) {
 
   svg.attr("viewBox", `0 0 ${width} ${height}`);
 
-  const nodes = graph.nodes.map((d) => {
+ const nodes = graph.nodes.map((d) => {
   const node = { ...d };
-  const fixed = state.fixedPositions.get(d.id);
 
-  if (fixed) {
-    node.x = fixed.x;
-    node.y = fixed.y;
-    node.fx = fixed.x;
-    node.fy = fixed.y;
+  if (graph.mode !== "comparison") {
+    const fixed = state.fixedPositions.get(d.id);
+
+    if (fixed) {
+      node.x = fixed.x;
+      node.y = fixed.y;
+      node.fx = fixed.x;
+      node.fy = fixed.y;
+    }
   }
 
   return node;
 });
-  const links = graph.links.map((d) => ({ ...d }));
+
+  let links = graph.links.map((d) => ({ ...d }));
+
+  if (graph.mode === "comparison") {
+    const anchorTags = new Set(graph.compareTags || Array.from(state.compareTags));
+
+    links = links.filter((link) => {
+      const source = getLinkName(link.source);
+      const target = getLinkName(link.target);
+
+      return anchorTags.has(source) || anchorTags.has(target);
+    });
+}
 
   const simulation = d3.forceSimulation(nodes)
   .force("link", d3.forceLink(links).id((d) => d.id).distance((d) => {
@@ -519,8 +534,8 @@ function drawNetwork(graph) {
 
 if (graph.mode === "comparison") {
   simulation
-    .force("x", d3.forceX((d) => comparisonX(d, width)).strength(0.5))
-    .force("y", d3.forceY((d) => comparisonY(d, height)).strength(0.08));
+    .force("x", d3.forceX((d) => comparisonX(d, width)).strength(1.0))
+    .force("y", d3.forceY((d) => comparisonY(d, height)).strength(0.12));
 } else {
   simulation
     .force("center", d3.forceCenter(width / 2, height / 2));
