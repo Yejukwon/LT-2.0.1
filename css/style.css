@@ -206,3 +206,32 @@ button:hover {
   color: #666;
   margin-top: 6px;
 }
+
+
+.compare-bar-row {
+  margin: 10px 0;
+}
+
+.compare-bar-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  margin-bottom: 3px;
+}
+
+.compare-bar-track {
+  width: 100%;
+  height: 8px;
+  background: #e6e6e6;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.compare-bar-fill {
+  height: 100%;
+  background: #222;
+}
+
+.compare-weight-list {
+  margin-top: 10px;
+}
