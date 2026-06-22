@@ -48,37 +48,39 @@
           <input id="min-weight" type="range" min="1" max="20" value="1">
         </label>
 
-        <label class="checkbox-row">
-          <input id="hide-power" type="checkbox">
-          Hide 능력녀
-        </label>
+        <div class="filter-block">
+          <h3>Hide Tags</h3>
+          <p class="small-note">Select one or more tags to hide from the network.</p>
+
+          <select id="exclude-tags" multiple size="8"></select>
+
+          <button id="clear-hidden-tags">Clear hidden tags</button>
+        </div>
       </section>
 
       <section class="panel-section">
         <h2>Compare Tags</h2>
 
         <label>
-          Tag A
-          <select id="compare-a"></select>
+          Category
+          <select id="compare-category"></select>
         </label>
 
         <label>
-          Tag B
-          <select id="compare-b"></select>
+          Tag
+          <select id="compare-tag"></select>
         </label>
 
-        <button id="compare-button">Compare</button>
+        <button id="add-compare-tag">+ Add tag</button>
+        <button id="clear-compare-tags">Clear comparison</button>
+
+        <div id="selected-compare-tags" class="tag-chip-area">
+          No comparison tags selected.
+        </div>
 
         <div id="compare-results">
-          Choose two tags to compare their co-occurrence patterns.
-        </div>
-      </section>
-
-      <section class="panel-section">
-        <h2>Inspector</h2>
-        <div id="inspector">
-          Click a node or edge to inspect it.
-        </div>
+          Add two or more tags to compare their co-occurrence patterns.
+       </div>
       </section>
     </aside>
   </main>
