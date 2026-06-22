@@ -10,9 +10,9 @@ const state = {
   minFrequency: 1,
   minWeight: 1,
   excludedTags: new Set(),
-  currentGraph: null
-  fixedPositions: new Map(),
   compareTags: new Set(),
+  fixedPositions: new Map(),
+  currentGraph: null
 };
 
 const svg = d3.select("#network");
