@@ -159,47 +159,83 @@ function setupControls() {
       updateNetwork();
     });
 
-  d3.select("#hide-power")
-    .on("change", function () {
-      if (this.checked) {
-        state.excludedTags.add("능력녀");
-      } else {
-        state.excludedTags.delete("능력녀");
-      }
-
-      updateNetwork();
-    });
+  setupExcludeTagControl();
 
   setupCompareControls();
 }
 
-function setupCompareControls() {
-  const tags = Array.from(state.frequencyByTag.keys()).sort();
+function setupExcludeTagControl() {
+  const tags = Array.from(state.frequencyByTag.keys())
+    .filter((tag) => tag && tag !== "N/A")
+    .sort();
 
-  const selectA = d3.select("#compare-a");
-  const selectB = d3.select("#compare-b");
+  const select = d3.select("#exclude-tags");
 
-  selectA
+  select
     .selectAll("option")
     .data(tags)
     .join("option")
     .attr("value", (d) => d)
     .text((d) => d);
 
-  selectB
-    .selectAll("option")
-    .data(tags)
-    .join("option")
-    .attr("value", (d) => d)
-    .text((d) => d);
+  select.on("change", function () {
+    const selected = Array.from(this.selectedOptions).map((option) => option.value);
 
-  selectA.property("value", "걸크러쉬");
-  selectB.property("value", "엉뚱발랄녀");
+    state.excludedTags = new Set(selected);
 
-  d3.select("#compare-button")
-    .on("click", compareSelectedTags);
+    updateNetwork();
+  });
+
+  d3.select("#clear-hidden-tags").on("click", function () {
+    state.excludedTags.clear();
+
+    select.selectAll("option").property("selected", false);
+
+    updateNetwork();
+  });
 }
 
+function setupCompareControls() {
+  const categories = Array.from(
+    new Set(state.metadata.map((d) => d.category))
+  ).sort();
+
+  const categorySelect = d3.select("#compare-category");
+  const tagSelect = d3.select("#compare-tag");
+
+  categorySelect
+    .selectAll("option")
+    .data(categories)
+    .join("option")
+    .attr("value", (d) => d)
+    .text((d) => formatCategory(d));
+
+  categorySelect.on("change", updateCompareTagDropdown);
+
+  d3.select("#add-compare-tag").on("click", function () {
+    const tag = tagSelect.property("value");
+
+    if (tag) {
+      state.compareTags.add(tag);
+      renderCompareChips();
+      updateNetwork();
+      compareSelectedTags();
+    }
+  });
+
+  d3.select("#clear-compare-tags").on("click", function () {
+    state.compareTags.clear();
+    renderCompareChips();
+    updateNetwork();
+
+    d3.select("#compare-results").html(
+      "Add two or more tags to compare their co-occurrence patterns."
+    );
+  });
+
+  updateCompareTagDropdown();
+  renderCompareChips();
+}
 function updateNetwork() {
   const graph = buildGraph();
   state.currentGraph = graph;
@@ -285,7 +321,19 @@ function drawNetwork(graph) {
 
   svg.attr("viewBox", `0 0 ${width} ${height}`);
 
-  const nodes = graph.nodes.map((d) => ({ ...d }));
+  const nodes = graph.nodes.map((d) => {
+  const node = { ...d };
+  const fixed = state.fixedPositions.get(d.id);
+
+  if (fixed) {
+    node.x = fixed.x;
+    node.y = fixed.y;
+    node.fx = fixed.x;
+    node.fy = fixed.y;
+  }
+
+  return node;
+});
   const links = graph.links.map((d) => ({ ...d }));
 
   const simulation = d3.forceSimulation(nodes)
@@ -309,20 +357,31 @@ function drawNetwork(graph) {
     });
 
   const node = graphLayer.append("g")
-    .attr("class", "nodes")
-    .selectAll("g")
-    .data(nodes)
-    .join("g")
-    .attr("class", "node")
-    .call(drag(simulation))
-    .on("click", function (event, d) {
-      event.stopPropagation();
-      showNodeInspector(d);
-    });
+  .attr("class", "nodes")
+  .selectAll("g")
+  .data(nodes)
+  .join("g")
+  .attr("class", "node")
+  .call(drag(simulation))
+  .on("click", function (event, d) {
+    event.stopPropagation();
+    showNodeInspector(d);
+  })
+  .on("dblclick", function (event, d) {
+    event.stopPropagation();
+
+    state.fixedPositions.delete(d.id);
+    d.fx = null;
+    d.fy = null;
+
+    updateNetwork();
+  });
 
   node.append("circle")
     .attr("r", (d) => nodeRadius(d))
-    .attr("fill", (d) => categoryColor(d.category));
+    .attr("fill", (d) => nodeColor(d))
+    .attr("stroke", (d) => state.fixedPositions.has(d.id) ? "#111" : "#fff")
+    .attr("stroke-width", (d) => state.fixedPositions.has(d.id) ? 3 : 1.5);
 
   node.append("text")
     .text((d) => d.label)
@@ -342,6 +401,18 @@ function drawNetwork(graph) {
     node
       .attr("transform", (d) => `translate(${d.x},${d.y})`);
   });
+}
+
+function nodeColor(d) {
+  if (state.compareTags.size > 0) {
+    if (state.compareTags.has(d.id)) {
+      return "#111111";
+    }
+
+    return "#cfcfcf";
+  }
+
+  return categoryColor(d.category);
 }
 
 function nodeRadius(d) {
@@ -372,8 +443,15 @@ function drag(simulation) {
   function dragended(event, d) {
     if (!event.active) simulation.alphaTarget(0);
 
-    d.fx = null;
-    d.fy = null;
+    d.fx = event.x;
+    d.fy = event.y;
+
+    state.fixedPositions.set(d.id, {
+      x: event.x,
+      y: event.y
+    });
+
+    showNodeInspector(d);
   }
 
   return d3.drag()
@@ -406,7 +484,9 @@ function showNodeInspector(node) {
   d3.select("#inspector").html(`
     <strong>${node.label}</strong><br>
     Category: ${formatCategory(node.category)}<br>
-    Frequency: ${node.frequency}<br><br>
+    Frequency: ${node.frequency}<br>
+    Pinned: ${state.fixedPositions.has(node.id) ? "Yes" : "No"}<br>
+    <span class="pinned-note">Drag to pin. Double-click to unpin.</span><br><br>
     ${node.description ? `<p>${node.description}</p>` : ""}
     <strong>Top connections</strong>
     <ol class="inspector-list">
@@ -433,6 +513,58 @@ function showEdgeInspector(edge) {
   `);
 }
 
+function updateCompareTagDropdown() {
+  const selectedCategory = d3.select("#compare-category").property("value");
+
+  const tags = Array.from(state.frequencyByTag.keys())
+    .filter((tag) => {
+      const meta = state.metaByTag.get(tag);
+      return meta && meta.category === selectedCategory;
+    })
+    .sort();
+
+  const tagSelect = d3.select("#compare-tag");
+
+  tagSelect
+    .selectAll("option")
+    .data(tags)
+    .join("option")
+    .attr("value", (d) => d)
+    .text((d) => d);
+}
+
+function renderCompareChips() {
+  const tags = Array.from(state.compareTags);
+
+  const container = d3.select("#selected-compare-tags");
+
+  if (tags.length === 0) {
+    container.html("No comparison tags selected.");
+    return;
+  }
+
+  const chips = container
+    .selectAll(".tag-chip")
+    .data(tags, (d) => d)
+    .join("span")
+    .attr("class", "tag-chip");
+
+  chips.html("");
+
+  chips.append("span").text((d) => d);
+
+  chips.append("button")
+    .text("×")
+    .on("click", function (event, tag) {
+      event.stopPropagation();
+
+      state.compareTags.delete(tag);
+      renderCompareChips();
+      updateNetwork();
+      compareSelectedTags();
+    });
+}
+
 function getWorksForPair(tagA, tagB) {
   const works = [];
 
@@ -446,81 +578,101 @@ function getWorksForPair(tagA, tagB) {
 }
 
 function compareSelectedTags() {
-  const tagA = d3.select("#compare-a").property("value");
-  const tagB = d3.select("#compare-b").property("value");
+  const selectedTags = Array.from(state.compareTags);
 
-  if (!tagA || !tagB || tagA === tagB) {
-    d3.select("#compare-results").html("Choose two different tags.");
+  if (selectedTags.length < 2) {
+    d3.select("#compare-results").html(
+      "Add two or more tags to compare their co-occurrence patterns."
+    );
     return;
   }
 
   const graph = state.currentGraph;
-
   const weightMap = new Map();
 
   for (const link of graph.links) {
     const source = getLinkName(link.source);
     const target = getLinkName(link.target);
+
     weightMap.set(pairKey(source, target), link.weight);
   }
 
-  const results = [];
+  const candidates = graph.nodes
+    .map((node) => node.id)
+    .filter((tag) => !state.compareTags.has(tag));
 
-  for (const node of graph.nodes) {
-    const target = node.id;
-
-    if (target === tagA || target === tagB) continue;
-
-    const weightA = weightMap.get(pairKey(tagA, target)) || 0;
-    const weightB = weightMap.get(pairKey(tagB, target)) || 0;
-
-    if (weightA === 0 && weightB === 0) continue;
-
-    results.push({
-      tag: target,
-      weightA,
-      weightB,
-      difference: Math.abs(weightA - weightB)
+  const rows = candidates.map((target) => {
+    const weights = selectedTags.map((selected) => {
+      return {
+        selected,
+        weight: weightMap.get(pairKey(selected, target)) || 0
+      };
     });
-  }
 
-  const closerToA = results
-    .filter((d) => d.weightA > d.weightB)
-    .sort((a, b) => b.difference - a.difference)
+    const total = d3.sum(weights, (d) => d.weight);
+    const max = d3.max(weights, (d) => d.weight) || 0;
+    const strongest = weights.filter((d) => d.weight === max && max > 0);
+
+    return {
+      target,
+      weights,
+      total,
+      max,
+      strongest
+    };
+  }).filter((d) => d.total > 0);
+
+  const shared = rows
+    .filter((row) => row.weights.every((d) => d.weight > 0))
+    .sort((a, b) => b.total - a.total)
     .slice(0, 8);
 
-  const closerToB = results
-    .filter((d) => d.weightB > d.weightA)
-    .sort((a, b) => b.difference - a.difference)
-    .slice(0, 8);
+  const bySelectedTag = selectedTags.map((selected) => {
+    const top = rows
+      .filter((row) => {
+        const selectedWeight = row.weights.find((d) => d.selected === selected).weight;
+        return selectedWeight > 0 && row.strongest.some((d) => d.selected === selected);
+      })
+      .sort((a, b) => {
+        const aw = a.weights.find((d) => d.selected === selected).weight;
+        const bw = b.weights.find((d) => d.selected === selected).weight;
+        return bw - aw;
+      })
+      .slice(0, 6);
 
-  const balanced = results
-    .filter((d) => d.weightA === d.weightB && d.weightA > 0)
-    .sort((a, b) => b.weightA - a.weightA)
-    .slice(0, 8);
+    return { selected, top };
+  });
 
   d3.select("#compare-results").html(`
-    <strong>${tagA} vs ${tagB}</strong>
+    <strong>Comparison tags</strong><br>
+    ${selectedTags.join(" / ")}
 
     <div class="compare-group">
-      <h4>Closer to ${tagA}</h4>
+      <h4>Shared by all selected tags</h4>
       <ul>
-        ${closerToA.map((d) => `<li>${d.tag}: ${d.weightA} vs ${d.weightB}</li>`).join("") || "<li>No visible result</li>"}
+        ${
+          shared.map((row) => {
+            const values = row.weights.map((d) => `${d.selected}: ${d.weight}`).join(", ");
+            return `<li>${row.target} <span class="small-note">(${values})</span></li>`;
+          }).join("") || "<li>No visible shared result</li>"
+        }
       </ul>
     </div>
 
-    <div class="compare-group">
-      <h4>Shared or balanced</h4>
-      <ul>
-        ${balanced.map((d) => `<li>${d.tag}: ${d.weightA} vs ${d.weightB}</li>`).join("") || "<li>No visible result</li>"}
-      </ul>
-    </div>
-
-    <div class="compare-group">
-      <h4>Closer to ${tagB}</h4>
-      <ul>
-        ${closerToB.map((d) => `<li>${d.tag}: ${d.weightA} vs ${d.weightB}</li>`).join("") || "<li>No visible result</li>"}
-      </ul>
-    </div>
+    ${
+      bySelectedTag.map((group) => `
+        <div class="compare-group">
+          <h4>Strongest near ${group.selected}</h4>
+          <ul>
+            ${
+              group.top.map((row) => {
+                const selectedWeight = row.weights.find((d) => d.selected === group.selected).weight;
+                return `<li>${row.target}: ${selectedWeight}</li>`;
+              }).join("") || "<li>No visible result</li>"
+            }
+          </ul>
+        </div>
+      `).join("")
+    }
   `);
 }
