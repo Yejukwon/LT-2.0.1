@@ -385,10 +385,7 @@ function buildGraph() {
 
 function buildComparisonGraph() {
   const baseGraph = buildGraph();
-  const selected = Array.from(state.compareTags).slice(0, 2);
-
-  const tagA = selected[0];
-  const tagB = selected[1];
+  const selectedTags = Array.from(state.compareTags);
 
   const nodeById = new Map(baseGraph.nodes.map((node) => [node.id, node]));
 
@@ -397,34 +394,39 @@ function buildComparisonGraph() {
   for (const link of baseGraph.links) {
     const source = getLinkName(link.source);
     const target = getLinkName(link.target);
-
     weightMap.set(pairKey(source, target), link.weight);
   }
 
-  const includedTags = new Set([tagA, tagB]);
-  const groupByTag = new Map();
-
-  groupByTag.set(tagA, "anchor_a");
-  groupByTag.set(tagB, "anchor_b");
+  const includedTags = new Set(selectedTags);
+  const links = [];
 
   for (const node of baseGraph.nodes) {
     const target = node.id;
 
-    if (target === tagA || target === tagB) continue;
+    if (state.compareTags.has(target)) continue;
 
-    const weightA = weightMap.get(pairKey(tagA, target)) || 0;
-    const weightB = weightMap.get(pairKey(tagB, target)) || 0;
+    const weights = selectedTags.map((selected) => {
+      return {
+        selected,
+        weight: weightMap.get(pairKey(selected, target)) || 0
+      };
+    });
 
-    if (weightA === 0 && weightB === 0) continue;
+    const totalWeight = d3.sum(weights, (d) => d.weight);
+
+    if (totalWeight === 0) continue;
 
     includedTags.add(target);
 
-    if (weightA > 0 && weightB > 0) {
-      groupByTag.set(target, "shared");
-    } else if (weightA > 0) {
-      groupByTag.set(target, "a_only");
-    } else if (weightB > 0) {
-      groupByTag.set(target, "b_only");
+    for (const item of weights) {
+      if (item.weight > 0) {
+        links.push({
+          source: item.selected,
+          target: target,
+          weight: item.weight,
+          comparisonEdge: true
+        });
+      }
     }
   }
 
@@ -434,30 +436,39 @@ function buildComparisonGraph() {
 
       if (!baseNode) return null;
 
+      const weights = selectedTags.map((selected) => {
+        return {
+          selected,
+          weight: weightMap.get(pairKey(selected, tag)) || 0
+        };
+      });
+
+      const connectedTo = weights.filter((d) => d.weight > 0);
+      const totalWeight = d3.sum(weights, (d) => d.weight);
+
+      let comparisonGroup = "target";
+
+      if (state.compareTags.has(tag)) {
+        comparisonGroup = "anchor";
+      } else if (connectedTo.length === 1) {
+        comparisonGroup = "only_" + connectedTo[0].selected;
+      } else if (connectedTo.length > 1) {
+        comparisonGroup = "shared";
+      }
+
       return {
         ...baseNode,
-        comparisonGroup: groupByTag.get(tag),
-        weightToA: weightMap.get(pairKey(tagA, tag)) || 0,
-        weightToB: weightMap.get(pairKey(tagB, tag)) || 0
+        comparisonGroup,
+        comparisonWeights: weights,
+        comparisonTotalWeight: totalWeight,
+        connectedCompareTags: connectedTo.map((d) => d.selected)
       };
     })
     .filter(Boolean);
 
-  const links = baseGraph.links.filter((link) => {
-    const source = getLinkName(link.source);
-    const target = getLinkName(link.target);
-
-    if (!includedTags.has(source) || !includedTags.has(target)) return false;
-
-    const touchesA = source === tagA || target === tagA;
-    const touchesB = source === tagB || target === tagB;
-
-    return touchesA || touchesB;
-  });
-
   return {
     mode: "comparison",
-    compareTags: [tagA, tagB],
+    compareTags: selectedTags,
     nodes,
     links
   };
@@ -522,8 +533,11 @@ if (graph.mode === "comparison") {
     .join("line")
     .attr("class", "link")
     .attr("stroke", "#999")
-    .attr("stroke-opacity", 0.45)
-    .attr("stroke-width", (d) => Math.sqrt(d.weight))
+    .attr("stroke-opacity", graph.mode === "comparison" ? 0.35 : 0.45)
+    .attr("stroke-width", (d) => {
+      if (graph.mode === "comparison") return 1 + Math.sqrt(d.weight);
+      return Math.sqrt(d.weight);
+    })
     .on("click", function (event, d) {
       event.stopPropagation();
       showEdgeInspector(d);
@@ -577,13 +591,58 @@ if (graph.mode === "comparison") {
 }
 
 function comparisonX(d, width) {
-  if (d.comparisonGroup === "anchor_a") return width * 0.20;
-  if (d.comparisonGroup === "a_only") return width * 0.28;
-  if (d.comparisonGroup === "shared") return width * 0.50;
-  if (d.comparisonGroup === "b_only") return width * 0.72;
-  if (d.comparisonGroup === "anchor_b") return width * 0.80;
+  const selectedTags = state.currentGraph && state.currentGraph.compareTags
+    ? state.currentGraph.compareTags
+    : Array.from(state.compareTags);
 
-  return width * 0.50;
+  if (selectedTags.length === 0) return width * 0.5;
+
+  const anchorPositions = new Map();
+
+  selectedTags.forEach((tag, index) => {
+    const x = width * (0.18 + (0.64 * index) / Math.max(1, selectedTags.length - 1));
+    anchorPositions.set(tag, x);
+  });
+
+  if (state.compareTags.has(d.id)) {
+    return anchorPositions.get(d.id) || width * 0.5;
+  }
+
+  if (!d.comparisonWeights || d.comparisonWeights.length === 0) {
+    return width * 0.5;
+  }
+
+  const positiveWeights = d.comparisonWeights.filter((item) => item.weight > 0);
+
+  if (positiveWeights.length === 1) {
+    const selected = positiveWeights[0].selected;
+    const anchorX = anchorPositions.get(selected) || width * 0.5;
+
+    if (selectedTags.length === 2) {
+      const index = selectedTags.indexOf(selected);
+      return index === 0 ? anchorX + width * 0.10 : anchorX - width * 0.10;
+    }
+
+    return anchorX;
+  }
+
+  const total = d3.sum(positiveWeights, (item) => item.weight);
+
+  if (total === 0) return width * 0.5;
+
+  const weightedX = d3.sum(positiveWeights, (item) => {
+    return (anchorPositions.get(item.selected) || width * 0.5) * item.weight;
+  }) / total;
+
+  return weightedX;
+}
+
+function comparisonY(d, height) {
+  if (state.compareTags.has(d.id)) {
+    return height * 0.5;
+  }
+
+  return height * 0.5;
 }
 
 function comparisonY(d, height) {
@@ -682,23 +741,28 @@ function showNodeInspector(node) {
     .slice(0, 12);
 
   d3.select("#inspector").html(`
-    <strong>${node.label}</strong><br>
-    Category: ${formatCategory(node.category)}<br>
-    Frequency: ${node.frequency}<br>
+  <strong>${node.label}</strong><br>
+  Category: ${formatCategory(node.category)}<br>
+  Frequency: ${node.frequency}<br>
 
-    ${node.comparisonGroup ? `Comparison group: ${node.comparisonGroup}<br>` : ""}
-    ${node.weightToA !== undefined ? `Weight to A: ${node.weightToA}<br>` : ""}
-    ${node.weightToB !== undefined ? `Weight to B: ${node.weightToB}<br>` : ""}
+  ${node.comparisonGroup ? `Comparison group: ${node.comparisonGroup}<br>` : ""}
 
-    Pinned: ${state.fixedPositions.has(node.id) ? "Yes" : "No"}<br>
-    <span class="pinned-note">Drag to pin. Double-click to unpin.</span><br><br>
+  ${
+    node.comparisonWeights
+      ? renderComparisonBars(node.comparisonWeights)
+      : ""
+  }
 
-    ${node.description ? `<p>${node.description}</p>` : ""}
-    <strong>Top connections</strong>
-    <ol class="inspector-list">
-      ${connected.map((d) => `<li>${d.tag}: ${d.weight}</li>`).join("")}
-    </ol>
-  `);
+  Pinned: ${state.fixedPositions.has(node.id) ? "Yes" : "No"}<br>
+  <span class="pinned-note">Drag to pin. Double-click to unpin.</span><br><br>
+
+  ${node.description ? `<p>${node.description}</p>` : ""}
+
+  <strong>Top connections</strong>
+  <ol class="inspector-list">
+    ${connected.map((d) => `<li>${d.tag}: ${d.weight}</li>`).join("")}
+  </ol>
+`);
 }
 
 function showEdgeInspector(edge) {
@@ -881,4 +945,30 @@ function compareSelectedTags() {
       `).join("")
     }
   `);
+}
+function renderComparisonBars(weights) {
+  const maxWeight = d3.max(weights, (d) => d.weight) || 1;
+
+  return `
+    <div class="compare-weight-list">
+      <strong>Comparison weights</strong>
+      ${
+        weights.map((item) => {
+          const width = maxWeight === 0 ? 0 : (item.weight / maxWeight) * 100;
+
+          return `
+            <div class="compare-bar-row">
+              <div class="compare-bar-label">
+                <span>${item.selected}</span>
+                <span>${item.weight}</span>
+              </div>
+              <div class="compare-bar-track">
+                <div class="compare-bar-fill" style="width: ${width}%"></div>
+              </div>
+            </div>
+          `;
+        }).join("")
+      }
+    </div>
+  `;
 }
