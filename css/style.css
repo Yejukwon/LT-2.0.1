@@ -1,1 +1,164 @@
+* {
+  box-sizing: border-box;
+}
 
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #f7f4f2;
+  color: #222;
+}
+
+.topbar {
+  height: 60px;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #ffffff;
+  border-bottom: 1px solid #ddd;
+}
+
+.site-title {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.nav-links {
+  display: flex;
+  gap: 20px;
+}
+
+.nav-links a {
+  text-decoration: none;
+  color: #333;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.nav-links a:hover {
+  text-decoration: underline;
+}
+
+.explorer-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  height: calc(100vh - 60px);
+}
+
+#network-area {
+  position: relative;
+  overflow: hidden;
+  background: #f3f0ee;
+}
+
+#network {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+#control-panel {
+  background: #ffffff;
+  border-left: 1px solid #ddd;
+  overflow-y: auto;
+  padding: 18px;
+}
+
+.panel-section {
+  border-bottom: 1px solid #e5e5e5;
+  padding-bottom: 18px;
+  margin-bottom: 18px;
+}
+
+.panel-section h2 {
+  font-size: 16px;
+  margin: 0 0 12px;
+}
+
+.panel-section h3 {
+  font-size: 14px;
+  margin: 14px 0 8px;
+}
+
+.checkbox-row {
+  display: block;
+  margin: 8px 0;
+  font-size: 14px;
+}
+
+.slider-label {
+  display: block;
+  margin: 16px 0;
+  font-size: 14px;
+}
+
+input[type="range"] {
+  width: 100%;
+  margin-top: 6px;
+}
+
+select {
+  width: 100%;
+  margin: 6px 0 12px;
+  padding: 6px;
+}
+
+button {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ccc;
+  background: #f7f7f7;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+button:hover {
+  background: #eeeeee;
+}
+
+#inspector,
+#compare-results,
+#data-status {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.node circle {
+  cursor: pointer;
+  stroke: #fff;
+  stroke-width: 1.5px;
+}
+
+.node text {
+  font-size: 11px;
+  pointer-events: none;
+  fill: #333;
+}
+
+.link {
+  cursor: pointer;
+}
+
+.inspector-list {
+  padding-left: 18px;
+}
+
+.small-note {
+  color: #666;
+  font-size: 12px;
+}
+
+.compare-group {
+  margin-top: 12px;
+}
+
+.compare-group h4 {
+  margin: 8px 0 4px;
+  font-size: 13px;
+}
+
+.compare-group ul {
+  margin: 0;
+  padding-left: 18px;
+}
