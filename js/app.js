@@ -234,15 +234,93 @@ function setupCompareControls() {
     );
   });
 
+  d3.select("#show-comparison-layout").on("click", function () {
+    if (state.compareTags.size < 2) {
+      d3.select("#compare-results").html(
+        "Add at least two tags to use comparison layout."
+      );
+      return;
+    }
+
+    state.viewMode = "comparison";
+    updateNetwork();
+    compareSelectedTags();
+  });
+
+  d3.select("#show-full-layout").on("click", function () {
+    state.viewMode = "full";
+    updateNetwork();
+  });
+
   updateCompareTagDropdown();
   renderCompareChips();
 }
+
+function updateCompareTagDropdown() {
+  const selectedCategory = d3.select("#compare-category").property("value");
+
+  const tags = Array.from(state.frequencyByTag.keys())
+    .filter((tag) => {
+      const meta = state.metaByTag.get(tag);
+      return meta && meta.category === selectedCategory;
+    })
+    .sort();
+
+  const tagSelect = d3.select("#compare-tag");
+
+  tagSelect
+    .selectAll("option")
+    .data(tags)
+    .join("option")
+    .attr("value", (d) => d)
+    .text((d) => d);
+}
+
+function renderCompareChips() {
+  const tags = Array.from(state.compareTags);
+
+  const container = d3.select("#selected-compare-tags");
+
+  if (tags.length === 0) {
+    container.html("No comparison tags selected.");
+    return;
+  }
+
+  const chips = container
+    .selectAll(".tag-chip")
+    .data(tags, (d) => d)
+    .join("span")
+    .attr("class", "tag-chip");
+
+  chips.html("");
+
+  chips.append("span").text((d) => d);
+
+  chips.append("button")
+    .text("×")
+    .on("click", function (event, tag) {
+      event.stopPropagation();
+
+      state.compareTags.delete(tag);
+      renderCompareChips();
+      updateNetwork();
+      compareSelectedTags();
+    });
+}
+
 function updateNetwork() {
-  const graph = buildGraph();
+  const graph =
+    state.viewMode === "comparison" && state.compareTags.size >= 2
+      ? buildComparisonGraph()
+      : buildGraph();
+
   state.currentGraph = graph;
   drawNetwork(graph);
 
+  const modeLabel = graph.mode === "comparison" ? "Comparison layout" : "Full network";
+
   d3.select("#data-status").html(`
+    <strong>${modeLabel}</strong><br>
     <strong>${graph.nodes.length}</strong> visible tags<br>
     <strong>${graph.links.length}</strong> visible links<br>
     <span class="small-note">Data source: works.csv, work_tags.csv, tag_metadata.csv</span>
@@ -305,6 +383,86 @@ function buildGraph() {
   return { nodes, links };
 }
 
+function buildComparisonGraph() {
+  const baseGraph = buildGraph();
+  const selected = Array.from(state.compareTags).slice(0, 2);
+
+  const tagA = selected[0];
+  const tagB = selected[1];
+
+  const nodeById = new Map(baseGraph.nodes.map((node) => [node.id, node]));
+
+  const weightMap = new Map();
+
+  for (const link of baseGraph.links) {
+    const source = getLinkName(link.source);
+    const target = getLinkName(link.target);
+
+    weightMap.set(pairKey(source, target), link.weight);
+  }
+
+  const includedTags = new Set([tagA, tagB]);
+  const groupByTag = new Map();
+
+  groupByTag.set(tagA, "anchor_a");
+  groupByTag.set(tagB, "anchor_b");
+
+  for (const node of baseGraph.nodes) {
+    const target = node.id;
+
+    if (target === tagA || target === tagB) continue;
+
+    const weightA = weightMap.get(pairKey(tagA, target)) || 0;
+    const weightB = weightMap.get(pairKey(tagB, target)) || 0;
+
+    if (weightA === 0 && weightB === 0) continue;
+
+    includedTags.add(target);
+
+    if (weightA > 0 && weightB > 0) {
+      groupByTag.set(target, "shared");
+    } else if (weightA > 0) {
+      groupByTag.set(target, "a_only");
+    } else if (weightB > 0) {
+      groupByTag.set(target, "b_only");
+    }
+  }
+
+  const nodes = Array.from(includedTags)
+    .map((tag) => {
+      const baseNode = nodeById.get(tag);
+
+      if (!baseNode) return null;
+
+      return {
+        ...baseNode,
+        comparisonGroup: groupByTag.get(tag),
+        weightToA: weightMap.get(pairKey(tagA, tag)) || 0,
+        weightToB: weightMap.get(pairKey(tagB, tag)) || 0
+      };
+    })
+    .filter(Boolean);
+
+  const links = baseGraph.links.filter((link) => {
+    const source = getLinkName(link.source);
+    const target = getLinkName(link.target);
+
+    if (!includedTags.has(source) || !includedTags.has(target)) return false;
+
+    const touchesA = source === tagA || target === tagA;
+    const touchesB = source === tagB || target === tagB;
+
+    return touchesA || touchesB;
+  });
+
+  return {
+    mode: "comparison",
+    compareTags: [tagA, tagB],
+    nodes,
+    links
+  };
+}
+
 function pairKey(a, b) {
   return [a, b].sort().join("|||");
 }
@@ -338,10 +496,24 @@ function drawNetwork(graph) {
   const links = graph.links.map((d) => ({ ...d }));
 
   const simulation = d3.forceSimulation(nodes)
-    .force("link", d3.forceLink(links).id((d) => d.id).distance(90))
-    .force("charge", d3.forceManyBody().strength(-170))
-    .force("center", d3.forceCenter(width / 2, height / 2))
-    .force("collision", d3.forceCollide().radius((d) => nodeRadius(d) + 8));
+  .force("link", d3.forceLink(links).id((d) => d.id).distance((d) => {
+    if (graph.mode === "comparison") return 180;
+    return 90;
+  }))
+  .force("charge", d3.forceManyBody().strength((d) => {
+    if (graph.mode === "comparison") return -260;
+    return -170;
+  }))
+  .force("collision", d3.forceCollide().radius((d) => nodeRadius(d) + 10));
+
+if (graph.mode === "comparison") {
+  simulation
+    .force("x", d3.forceX((d) => comparisonX(d, width)).strength(0.5))
+    .force("y", d3.forceY((d) => comparisonY(d, height)).strength(0.08));
+} else {
+  simulation
+    .force("center", d3.forceCenter(width / 2, height / 2));
+}
 
   const link = graphLayer.append("g")
     .attr("class", "links")
@@ -404,7 +576,39 @@ function drawNetwork(graph) {
   });
 }
 
+function comparisonX(d, width) {
+  if (d.comparisonGroup === "anchor_a") return width * 0.20;
+  if (d.comparisonGroup === "a_only") return width * 0.28;
+  if (d.comparisonGroup === "shared") return width * 0.50;
+  if (d.comparisonGroup === "b_only") return width * 0.72;
+  if (d.comparisonGroup === "anchor_b") return width * 0.80;
+
+  return width * 0.50;
+}
+
+function comparisonY(d, height) {
+  if (d.comparisonGroup === "anchor_a") return height * 0.50;
+  if (d.comparisonGroup === "anchor_b") return height * 0.50;
+
+  return height * 0.50;
+}
+
+function nodeRadius(d) {
+  return 4 + Math.sqrt(d.frequency || 1) * 2;
+}
+
 function nodeColor(d) {
+  if (state.currentGraph && state.currentGraph.mode === "comparison") {
+    if (d.comparisonGroup === "anchor_a") return "#111111";
+    if (d.comparisonGroup === "anchor_b") return "#111111";
+
+    if (d.comparisonGroup === "a_only") return "#7a7a7a";
+    if (d.comparisonGroup === "shared") return "#b8b8b8";
+    if (d.comparisonGroup === "b_only") return "#7a7a7a";
+
+    return "#d0d0d0";
+  }
+
   if (state.compareTags.size > 0) {
     if (state.compareTags.has(d.id)) {
       return "#111111";
@@ -415,11 +619,6 @@ function nodeColor(d) {
 
   return categoryColor(d.category);
 }
-
-function nodeRadius(d) {
-  return 4 + Math.sqrt(d.frequency || 1) * 2;
-}
-
 function categoryColor(category) {
   if (category === "female_protagonist") return "#c95f7b";
   if (category === "male_protagonist") return "#4f7cac";
@@ -486,8 +685,14 @@ function showNodeInspector(node) {
     <strong>${node.label}</strong><br>
     Category: ${formatCategory(node.category)}<br>
     Frequency: ${node.frequency}<br>
+
+    ${node.comparisonGroup ? `Comparison group: ${node.comparisonGroup}<br>` : ""}
+    ${node.weightToA !== undefined ? `Weight to A: ${node.weightToA}<br>` : ""}
+    ${node.weightToB !== undefined ? `Weight to B: ${node.weightToB}<br>` : ""}
+
     Pinned: ${state.fixedPositions.has(node.id) ? "Yes" : "No"}<br>
     <span class="pinned-note">Drag to pin. Double-click to unpin.</span><br><br>
+
     ${node.description ? `<p>${node.description}</p>` : ""}
     <strong>Top connections</strong>
     <ol class="inspector-list">
