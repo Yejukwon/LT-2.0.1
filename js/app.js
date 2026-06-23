@@ -808,16 +808,6 @@ function nodeColor(d) {
   return categoryColor(d.category);
 }
 
-  if (state.compareTags.size > 0) {
-    if (state.compareTags.has(d.id)) {
-      return "#111111";
-    }
-
-    return "#cfcfcf";
-  }
-
-  return categoryColor(d.category);
-}
 function categoryColor(category) {
   if (category === "female_protagonist") return "#c95f7b";
   if (category === "male_protagonist") return "#4f7cac";
