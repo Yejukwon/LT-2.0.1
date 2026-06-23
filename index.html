@@ -14,6 +14,7 @@
       <a href="index.html">Explore</a>
       <a href="about.html">About</a>
       <a href="essay.html">Visual Essay</a>
+      <button id="help-button" class="help-button" type="button" aria-label="Open help">?</button>
     </nav>
   </header>
 
@@ -120,6 +121,63 @@
   </main>
   
   <div id="node-tooltip" class="node-tooltip hidden"></div>
+
+  <div id="help-modal" class="help-modal hidden">
+  <div class="help-modal-card">
+    <button id="close-help" class="close-help" type="button">×</button>
+
+    <h2>How to Use the Network Explorer</h2>
+
+    <div class="help-grid">
+      <div>
+        <h3>Filter the network</h3>
+        <p>
+          Use category filters, minimum frequency, and minimum edge weight to control which
+          hashtags and relationships are visible.
+        </p>
+      </div>
+
+      <div>
+        <h3>Inspect a hashtag</h3>
+        <p>
+          Hover over a node to see its category, frequency, and strongest connections.
+        </p>
+      </div>
+
+      <div>
+        <h3>Pin nodes</h3>
+        <p>
+          Drag a node to fix it in place. Double-click a node to unpin it. Use Clear all pinned
+          nodes to reset the layout.
+        </p>
+      </div>
+
+      <div>
+        <h3>Compare tags</h3>
+        <p>
+          Add two or more hashtags in Compare Tags, then use Show comparison layout to see which
+          tags connect to each selected term.
+        </p>
+      </div>
+
+      <div>
+        <h3>Hide dominant tags</h3>
+        <p>
+          Use Hide Tags to remove very central hashtags, such as 능력녀 or 로맨스판타지, and reveal
+          smaller patterns.
+        </p>
+      </div>
+
+      <div>
+        <h3>Read the edges</h3>
+        <p>
+          An edge means that two hashtags appear in the same work. A thicker edge means that the
+          co-occurrence appears in more works.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
   
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
   <script src="js/app.js"></script>
