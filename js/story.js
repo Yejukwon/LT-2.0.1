@@ -30,6 +30,53 @@ const STORY_COLORS = {
   teal: "#557f7b"
 };
 
+const STORY_TEXT = {
+  ko: {
+    datasetView: "데이터셋 보기",
+    works: "작품 수",
+    uniqueTags: "고유 해시태그",
+    visibleEdges: "표시된 연결",
+    visibleNodes: "표시된 노드",
+    frequency: "빈도",
+    category: "카테고리",
+    topLinksShown: "주요 연결",
+    strongestConnections: "가장 강한 연결",
+    comparison: "비교",
+    comparedWithin: "비교 범위",
+    sharedTopNodes: "공유 노드",
+    sharedNeighboringTags: "공유 인접 태그",
+    pinned: "고정됨",
+    visibleLinks: "표시된 연결",
+    interactionNote: "네트워크 안에서 확대/축소할 수 있습니다. 노드를 드래그하면 고정되고, 더블클릭하면 고정이 해제됩니다."
+  },
+  en: {
+    datasetView: "Dataset view",
+    works: "Works",
+    uniqueTags: "Unique tags",
+    visibleEdges: "Visible edges",
+    visibleNodes: "Visible nodes",
+    frequency: "Frequency",
+    category: "Category",
+    topLinksShown: "Top links shown",
+    strongestConnections: "Strongest visible connections",
+    comparison: "Comparison",
+    comparedWithin: "Compared within",
+    sharedTopNodes: "Shared top nodes",
+    sharedNeighboringTags: "Shared neighboring tags",
+    pinned: "Pinned",
+    visibleLinks: "Visible links",
+    interactionNote: "Scroll or pinch inside the network to zoom. Drag a node to pin it. Double-click a node to unpin it."
+  }
+};
+
+function currentStoryLang() {
+  return document.body.dataset.lang === "en" ? "en" : "ko";
+}
+
+function storyText(key) {
+  return STORY_TEXT[currentStoryLang()][key] || STORY_TEXT.en[key] || key;
+}
+
 Promise.all([
   d3.csv("data/works.csv"),
   d3.csv("data/work_tags.csv"),
@@ -821,16 +868,16 @@ function updateStoryTextPanel(graph, options) {
 }
 
 function renderIntroPanel(graph) {
-  const uniqueTags = Array.from(storyState.frequencyByTag.keys()).filter((tag) => tag && tag !== "N/A");
+  const uniqueTags = Array.from(storyState.frequencyByTag.keys())
+    .filter((tag) => tag && tag !== "N/A");
 
   d3.select("#story-inspector").html(`
-    <h3>Dataset view</h3>
+    <h3>${storyText("datasetView")}</h3>
     <div class="story-stat-grid">
-      <div><strong>${storyState.works.length}</strong><span>Works</span></div>
-      <div><strong>${uniqueTags.length}</strong><span>Unique tags</span></div>
-      <div><strong>${graph.links.length}</strong><span>Visible edges</span></div>
+      <div><strong>${storyState.works.length}</strong><span>${storyText("works")}</span></div>
+      <div><strong>${uniqueTags.length}</strong><span>${storyText("uniqueTags")}</span></div>
+      <div><strong>${graph.links.length}</strong><span>${storyText("visibleEdges")}</span></div>
     </div>
-    <p>This visual essay uses preset views of the same hashtag network used in the main explorer.</p>
   `);
 }
 
@@ -933,3 +980,9 @@ function renderComparisonPanel(graph, options) {
     </ol>
   `);
 }
+
+window.addEventListener("languagechange", () => {
+  if (storyState.currentGraph) {
+    updateStoryTextPanel(storyState.currentGraph, storyState.currentOptions);
+  }
+});
