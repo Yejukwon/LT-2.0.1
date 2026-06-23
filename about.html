@@ -6,9 +6,9 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 
-<body>
-  <header class="topbar">
-    <div class="site-title">Lie That Tells The Truth 2.0</div>
+<body class="about-page-body">
+  <header class="topbar about-topbar">
+    <div class="site-title">Lie That Tells the Truth 2.0</div>
 
     <nav class="nav-links">
       <a href="index.html">Explore</a>
@@ -17,187 +17,159 @@
     </nav>
   </header>
 
-  <main class="content-page">
-    <section class="page-hero">
-      <p class="eyebrow">About the Project</p>
-      <h1>Lie That Tells the Truth 2.0</h1>
-      <p class="hero-text">
-        A digital humanities project on Korean women-oriented web novels, romance fantasy clichés,
-        and hashtag networks as structures of desire.
+  <main class="about-page">
+    <section class="about-hero">
+      <p class="about-eyebrow">Digital Humanities / Romance Fantasy / Hashtag Networks</p>
+
+      <h1 class="romance-title" aria-label="Lie That Tells the Truth 2.0">
+        <span class="rt rt-1">Lie</span>
+        <span class="rt rt-2">That</span>
+        <span class="rt rt-3">Tells</span>
+        <span class="rt rt-4">the</span>
+        <span class="rt rt-5">Truth</span>
+        <span class="rt rt-6">2.0</span>
+      </h1>
+
+      <p class="about-subtitle">
+        A digital humanities project on Korean women-oriented web novels,
+        romance fantasy clichés, and hashtag networks as structures of desire.
       </p>
     </section>
 
-    <section class="content-section">
-      <h2>Project Overview</h2>
-
-      <p>
+    <section class="about-section about-intro">
+      <p class="lead-paragraph">
         One of the most common criticisms of romance fantasy web novels is their reliance on clichés.
         Hashtags such as <code>#competentheroine</code>, <code>#girlcrush</code>,
         <code>#kindmalelead</code>, <code>#regretfulmalelead</code>, <code>#regression</code>,
         and <code>#contractmarriage</code> may seem to point to the repetitive reproduction of
-        standardized characters and plot structures. These coded elements often make romance fantasy
-        web novels appear less like “literature” and more like commercial products designed to provide
-        readers with immediate catharsis.
+        standardized characters and plot structures.
       </p>
 
       <p>
-        This project, however, begins from the opposite premise: romance fantasy may be realistic
-        precisely because of its clichés. A cliché is not merely an old or repetitive narrative formula.
-        It is also a condensed form of desire, repeatedly selected, consumed, and reproduced by readers.
-        In romance fantasy web novels, hashtags function as codes that break down stories into smaller
-        elements, such as the female protagonist, the male protagonist, relationships, conflicts,
-        narrative devices, and forms of reward. Readers use these codes to find the stories they want,
-        platforms use them to classify works, and writers and markets recombine them to produce new
-        stories.
+        These coded elements often make romance fantasy web novels appear less like “literature”
+        and more like commercial products designed to provide readers with immediate catharsis.
       </p>
+
+      <blockquote class="about-pullquote">
+        Romance fantasy may be realistic precisely because of its clichés.
+      </blockquote>
+
+      <p>
+        A cliché is not merely an old or repetitive narrative formula. It is also a condensed form
+        of desire, repeatedly selected, consumed, and reproduced by readers. In romance fantasy web
+        novels, hashtags function as codes that break down stories into smaller elements, such as
+        the female protagonist, the male protagonist, relationships, conflicts, narrative devices,
+        and forms of reward.
+      </p>
+
+      <p>
+        Readers use these codes to find the stories they want, platforms use them to classify works,
+        and writers and markets recombine them to produce new stories.
+      </p>
+    </section>
+
+    <section class="about-section">
+      <h2>Project Overview</h2>
 
       <p>
         From the perspective of digital humanities, these hashtags can be understood not simply as
-        search terms, but as meaningful units for distant reading. The web novel market operates through
-        continuous reader engagement, recurring payments, and immediate audience response. For this
-        reason, hashtags do more than describe the content of individual works. They can also be read as
-        indicators of what kinds of characters, relationships, and narrative rewards readers desire.
+        search terms, but as meaningful units for distant reading. The web novel market operates
+        through continuous reader engagement, recurring payments, and immediate audience response.
+        For this reason, hashtags do more than describe the content of individual works. They can
+        also be read as indicators of what kinds of characters, relationships, and narrative rewards
+        readers desire.
       </p>
 
       <p>
-        <em>Lie That Tells the Truth 2.0</em> is a digital humanities project that analyzes the
-        relationships among hashtags used in contemporary Korean women-oriented web novels and examines
-        the desires and gendered imaginations embedded within them. In women-oriented web novels, a
-        single hashtag rarely produces meaning on its own. Rather, multiple hashtags are used together
-        to construct a specific character type, relationship dynamic, or narrative structure. Through
-        hashtag network analysis, this project explores how the repeated codes of romance fantasy reveal
-        the desires, anxieties, expectations, and idealized subjectivities of contemporary women readers.
+        <em>Lie That Tells the Truth 2.0</em> analyzes the relationships among hashtags used in
+        contemporary Korean women-oriented web novels and examines the desires and gendered
+        imaginations embedded within them. In women-oriented web novels, a single hashtag rarely
+        produces meaning on its own. Rather, multiple hashtags are used together to construct a
+        specific character type, relationship dynamic, or narrative structure.
       </p>
 
       <p>
-        This approach does not replace close reading with distant reading. Instead, it places the two
-        methods in a complementary relationship. While close reading allows us to examine the meanings
-        of characters and narratives within individual texts, hashtag network analysis reveals recurring
-        patterns and structures of desire across a larger body of works. By connecting these two modes
-        of reading, this project argues that romance fantasy web novels are not merely escapist fantasies.
-        Rather, they are “lies that tell the truth,” fictional worlds that reveal how contemporary Korean
-        women readers imagine, negotiate, and respond to the realities of gender, power, and social
-        institutions.
+        Through hashtag network analysis, this project explores how the repeated codes of romance
+        fantasy reveal the desires, anxieties, expectations, and idealized subjectivities of
+        contemporary women readers.
       </p>
     </section>
 
-    <section class="content-section">
-      <h2>Dataset</h2>
-      <p>
-        The dataset was built from a collection of Korean romance fantasy webnovels and their
-        associated platform hashtags. Each work was assigned a unique work ID, and each hashtag
-        attached to that work was recorded as a separate work-tag relationship.
-      </p>
+    <section class="about-section">
+      <h2>Methodology</h2>
 
-      <div class="method-grid">
-        <div class="method-card">
-          <h3>works.csv</h3>
+      <div class="about-method-grid">
+        <article class="about-method-card">
+          <h3>Dataset</h3>
           <p>
-            Contains work-level information, such as work ID, title, ranking information,
-            platform, publication form, and brief descriptive fields when available.
+            The dataset was built from Korean romance fantasy webnovels and their associated
+            platform hashtags. Each work was assigned a unique work ID, and each hashtag attached
+            to that work was recorded as a separate work-tag relationship.
           </p>
-        </div>
+        </article>
 
-        <div class="method-card">
-          <h3>work_tags.csv</h3>
+        <article class="about-method-card">
+          <h3>Data Preparation</h3>
           <p>
-            Contains the relationship between each work and each hashtag. This file is the
-            main source for calculating hashtag frequency and co-occurrence.
+            The original dataset was reorganized into three CSV files: <code>works.csv</code>,
+            <code>work_tags.csv</code>, and <code>tag_metadata.csv</code>. Hashtag symbols were
+            removed for consistency, and non-informative values were excluded from the network.
           </p>
-        </div>
+        </article>
 
-        <div class="method-card">
-          <h3>tag_metadata.csv</h3>
+        <article class="about-method-card">
+          <h3>Network Construction</h3>
           <p>
-            Contains manually assigned hashtag categories, such as female protagonist,
-            male protagonist, genre or plot, and hybrid.
+            Each node represents a hashtag. An edge is created when two hashtags appear in the same
+            work. Edge weight represents the number of works in which two hashtags appear together.
           </p>
-        </div>
+        </article>
+
+        <article class="about-method-card">
+          <h3>Tool Design</h3>
+          <p>
+            The interactive explorer was built with D3.js. The network is calculated from the CSV
+            files in the browser, allowing users to filter categories, hide dominant tags, inspect
+            nodes, and compare selected hashtags.
+          </p>
+        </article>
       </div>
     </section>
 
-    <section class="content-section">
-      <h2>Data Preparation</h2>
+    <section class="about-section">
+      <h2>Close Reading and Distant Reading</h2>
+
       <p>
-        The original dataset was reorganized into a long-format structure so that each row in
-        <code>work_tags.csv</code> represents one relationship between a work and a hashtag.
-        Hashtag symbols were removed from the raw tag strings for consistency, and missing or
-        non-informative values were excluded from the network.
+        This approach does not replace close reading with distant reading. Instead, it places the
+        two methods in a complementary relationship. While close reading allows us to examine the
+        meanings of characters and narratives within individual texts, hashtag network analysis
+        reveals recurring patterns and structures of desire across a larger body of works.
       </p>
 
       <p>
-        Hashtags were then categorized into broad analytical groups. These categories are not
-        automatic classifications. They reflect interpretive decisions made for this project in
-        order to compare how different kinds of tags operate within the same platform system.
-      </p>
-    </section>
-
-    <section class="content-section">
-      <h2>Network Methodology</h2>
-      <p>
-        In this network, each node represents a hashtag. An edge is created when two hashtags
-        appear in the same work. The weight of an edge represents the number of works in which
-        the two hashtags appear together.
-      </p>
-
-      <div class="definition-list">
-        <div>
-          <strong>Node</strong>
-          <p>A hashtag, such as <code>능력녀</code>, <code>걸크러쉬</code>, or <code>회귀물</code>.</p>
-        </div>
-
-        <div>
-          <strong>Edge</strong>
-          <p>A co-occurrence relationship between two hashtags within the same work.</p>
-        </div>
-
-        <div>
-          <strong>Frequency</strong>
-          <p>The number of works in which a hashtag appears.</p>
-        </div>
-
-        <div>
-          <strong>Edge weight</strong>
-          <p>The number of works in which two hashtags appear together.</p>
-        </div>
-      </div>
-
-      <p>
-        The visualization was built with D3.js. The graph is calculated from the source CSV files
-        in the browser, which allows the user to filter and compare the network interactively.
+        By connecting these two modes of reading, this project argues that romance fantasy web
+        novels are not merely escapist fantasies. Rather, they are “lies that tell the truth,”
+        fictional worlds that reveal how contemporary Korean women readers imagine, negotiate, and
+        respond to the realities of gender, power, and social institutions.
       </p>
     </section>
 
-    <section class="content-section">
-      <h2>How to Use the Network Tool</h2>
-      <ul>
-        <li>Use <strong>category filters</strong> to show or hide broad hashtag groups.</li>
-        <li>Use <strong>minimum frequency</strong> to remove hashtags that appear in fewer works.</li>
-        <li>Use <strong>minimum edge weight</strong> to remove weak co-occurrence relationships.</li>
-        <li>Use <strong>Hide Tags</strong> to remove dominant tags such as <code>능력녀</code> or <code>로맨스판타지</code>.</li>
-        <li>Use <strong>Compare Tags</strong> to compare two or more selected hashtags.</li>
-        <li>Hover over a node to see its category, frequency, and strongest connections.</li>
-        <li>Drag a node to pin it in place, and double-click to unpin it.</li>
-      </ul>
-    </section>
-
-    <section class="content-section">
+    <section class="about-section">
       <h2>Limitations and Data Ethics</h2>
+
       <p>
-        This project does not claim that hashtags fully represent the content of a work.
-        Platform tags are shaped by discoverability, marketing, reader expectations, and genre
-        convention. They are useful cultural data, but they should not be treated as neutral or
-        complete descriptions of the text itself.
+        This project does not claim that hashtags fully represent the content of a work. Platform
+        tags are shaped by discoverability, marketing, reader expectations, and genre convention.
+        They are useful cultural data, but they should not be treated as neutral or complete
+        descriptions of the text itself.
       </p>
 
       <p>
         The category labels used in this project also involve interpretation. Some hashtags can
         belong to multiple conceptual groups, and some may shift meaning depending on platform
-        context or reader usage. For this reason, the network should be read as an exploratory
-        map rather than a final classification of the genre.
+        context or reader usage. For this reason, the network should be read as an exploratory map
+        rather than a final classification of the genre.
       </p>
-    </section>
-
     </section>
   </main>
 </body>
