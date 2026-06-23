@@ -670,16 +670,29 @@ if (graph.mode === "comparison") {
   });
 
   node.append("circle")
-    .attr("r", (d) => nodeRadius(d))
+    .attr("r", (d) => {
+      if (state.compareTags.has(d.id)) return nodeRadius(d) + 4;
+      return nodeRadius(d);
+    })
     .attr("fill", (d) => nodeColor(d))
-    .attr("stroke", (d) => state.fixedPositions.has(d.id) ? "#111" : "#fff")
-    .attr("stroke-width", (d) => state.fixedPositions.has(d.id) ? 3 : 1.5);
-
+    .attr("stroke", (d) => {
+      if (state.compareTags.has(d.id)) return "#111111";
+      if (state.fixedPositions.has(d.id)) return "#111111";
+      return "#ffffff";
+    })
+    .attr("stroke-width", (d) => {
+      if (state.compareTags.has(d.id)) return 3;
+      if (state.fixedPositions.has(d.id)) return 3;
+      return 1.5;
+    });
+  
   node.append("text")
     .text((d) => d.label)
-    .attr("x", (d) => nodeRadius(d) + 4)
-    .attr("y", 4);
-
+    .attr("x", (d) => nodeRadius(d) + 6)
+    .attr("y", 4)
+    .attr("font-weight", (d) => state.compareTags.has(d.id) ? 700 : 400)
+  .attr("fill", (d) => state.compareTags.has(d.id) ? "#111111" : "#333333");
+  
   node.append("title")
     .text((d) => `${d.label} / ${formatCategory(d.category)} / frequency: ${d.frequency}`);
 
@@ -762,16 +775,36 @@ function nodeRadius(d) {
 }
 
 function nodeColor(d) {
-  if (state.currentGraph && state.currentGraph.mode === "comparison") {
-    if (d.comparisonGroup === "anchor_a") return "#111111";
-    if (d.comparisonGroup === "anchor_b") return "#111111";
+  const graph = state.currentGraph;
 
-    if (d.comparisonGroup === "a_only") return "#7a7a7a";
-    if (d.comparisonGroup === "shared") return "#b8b8b8";
-    if (d.comparisonGroup === "b_only") return "#7a7a7a";
+  if (graph && graph.mode === "comparison") {
+    const compareTags = new Set(graph.compareTags || Array.from(state.compareTags));
+
+    if (compareTags.has(d.id)) {
+      return "#111111";
+    }
+
+    if (d.comparisonGroup === "shared") {
+      return "#b8b8b8";
+    }
+
+    if (String(d.comparisonGroup || "").startsWith("only_")) {
+      return "#9a9a9a";
+    }
 
     return "#d0d0d0";
   }
+
+  if (state.compareTags.size > 0) {
+    if (state.compareTags.has(d.id)) {
+      return "#111111";
+    }
+
+    return "#cfcfcf";
+  }
+
+  return categoryColor(d.category);
+}
 
   if (state.compareTags.size > 0) {
     if (state.compareTags.has(d.id)) {
