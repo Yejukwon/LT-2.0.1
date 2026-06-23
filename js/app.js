@@ -660,6 +660,7 @@ if (graph.mode === "comparison") {
   .call(drag(simulation))
   .on("click", function (event, d) {
     event.stopPropagation();
+    console.log("NODE CLICKED:", d);
     showNodeInspector(d);
   })
   .on("dblclick", function (event, d) {
@@ -672,6 +673,12 @@ if (graph.mode === "comparison") {
     updateNetwork();
   });
 
+  node.append("circle")
+    .attr("class", "node-hit-area")
+    .attr("r", (d) => Math.max(18, nodeRadius(d) + 10))
+    .attr("fill", "transparent")
+    .attr("pointer-events", "all");
+  
   node.append("circle")
     .attr("r", (d) => {
       if (state.compareTags.has(d.id)) return nodeRadius(d) + 4;
@@ -851,6 +858,7 @@ function drag(simulation) {
 }
 
 function showNodeInspector(node) {
+  console.log("SHOW INSPECTOR:", node);
   const connected = state.currentGraph.links
     .filter((link) => {
       const source = getLinkName(link.source);
