@@ -399,3 +399,26 @@
 .story-viz {
   min-width: 420px;
 }
+
+/* Text color cleanup */
+
+.visual-essay-body,
+.visual-essay-body p,
+.visual-essay-body li,
+.visual-essay-body span,
+.visual-essay-body small,
+.visual-essay-body .story-body,
+.visual-essay-body .story-kicker,
+.visual-essay-body .story-viz-label,
+.visual-essay-body .story-inspector {
+  color: #1f1a14;
+  opacity: 1;
+}
+
+.visual-essay-body h1,
+.visual-essay-body h2,
+.visual-essay-body h3,
+.visual-essay-body h4 {
+  color: #1f1a14;
+  opacity: 1;
+}
