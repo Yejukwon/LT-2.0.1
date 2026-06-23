@@ -677,12 +677,6 @@ if (graph.mode === "comparison") {
 
     updateNetwork();
   });
-
-  node.append("circle")
-    .attr("class", "node-hit-area")
-    .attr("r", (d) => Math.max(18, nodeRadius(d) + 10))
-    .attr("fill", "transparent")
-    .attr("pointer-events", "all");
   
   node.append("circle")
     .attr("r", (d) => {
@@ -1132,4 +1126,57 @@ function renderComparisonBars(weights) {
       }
     </div>
   `;
+}
+
+function showNodeTooltip(event, node) {
+  const connected = state.currentGraph.links
+    .filter((link) => {
+      const source = getLinkName(link.source);
+      const target = getLinkName(link.target);
+
+      return source === node.id || target === node.id;
+    })
+    .map((link) => {
+      const source = getLinkName(link.source);
+      const target = getLinkName(link.target);
+      const other = source === node.id ? target : source;
+
+      return {
+        tag: other,
+        weight: link.weight
+      };
+    })
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, 3);
+
+  d3.select("#node-tooltip")
+    .classed("hidden", false)
+    .html(`
+      <strong>${node.label}</strong><br>
+      Category: ${formatCategory(node.category)}<br>
+      Frequency: ${node.frequency}<br>
+      ${
+        node.comparisonGroup
+          ? `Group: ${node.comparisonGroup}<br>`
+          : ""
+      }
+      ${
+        connected.length > 0
+          ? `<br>Top links:<br>${connected.map((d) => `${d.tag}: ${d.weight}`).join("<br>")}`
+          : ""
+      }
+    `);
+
+  moveNodeTooltip(event);
+}
+
+function moveNodeTooltip(event) {
+  d3.select("#node-tooltip")
+    .style("left", `${event.clientX + 14}px`)
+    .style("top", `${event.clientY + 14}px`);
+}
+
+function hideNodeTooltip() {
+  d3.select("#node-tooltip")
+    .classed("hidden", true);
 }
