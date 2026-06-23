@@ -1271,3 +1271,34 @@ function buildGlobalGraphStats() {
     topByCategory
   };
 }
+
+function renderDataOverview() {
+  d3.select("#data-overview").html(`
+    <div class="overview-note">
+      Fixed summary based on the full dataset.
+    </div>
+
+    <h3>Dataset size</h3>
+    <div class="overview-stat-grid">
+      <div class="overview-stat-card">
+        <strong>Works</strong>
+        <span>${state.works.length}</span>
+      </div>
+
+      <div class="overview-stat-card">
+        <strong>Tag records</strong>
+        <span>${state.workTags.length}</span>
+      </div>
+
+      <div class="overview-stat-card">
+        <strong>Unique tags</strong>
+        <span>${state.frequencyByTag.size}</span>
+      </div>
+
+      <div class="overview-stat-card">
+        <strong>Categories</strong>
+        <span>${new Set(state.metadata.map((d) => d.category)).size}</span>
+      </div>
+    </div>
+  `);
+}
