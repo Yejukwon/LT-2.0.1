@@ -173,13 +173,13 @@ function applyStoryStep(step) {
   };
 
   if (preset === "compare") {
-    const compareTags = new Set(tags);
-    const compareCategory = category || inferComparisonCategory(tags);
+  const compareTags = new Set(tags);
+  const compareCategory = category || inferComparisonCategory(tags);
 
-    options.compareTags = compareTags;
-    options.category = compareCategory;
+  options.compareTags = compareTags;
+  options.category = compareCategory;
 
-    graph = buildStoryComparisonGraph(Array.from(compareTags), compareCategory);
+  graph = buildStoryComparisonGraph(Array.from(compareTags), compareCategory);
   } else if (preset === "inspect") {
     tags.forEach((tag) => focusTags.add(tag));
 
