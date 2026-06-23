@@ -296,3 +296,42 @@
     opacity: 1;
   }
 }
+
+.visual-essay,
+.visual-essay p,
+.visual-essay li,
+.visual-essay span,
+.visual-essay .essay-text,
+.visual-essay .essay-note,
+.visual-essay .caption,
+.visual-essay .muted,
+.visual-essay small {
+  color: #1f1a14;
+  opacity: 1;
+}
+
+.visual-essay-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 420px;
+  gap: 24px;
+  height: calc(100vh - 64px);
+  overflow: hidden;
+}
+
+.visual-essay-main {
+  overflow-y: auto;
+  padding-right: 12px;
+}
+
+.visual-essay-side {
+  overflow-y: auto;
+  padding: 20px;
+  padding-bottom: 40px;
+}
+
+.essay-network-card svg,
+#girlcrush-network,
+#male-comparison-network {
+  width: 100%;
+  height: 560px;
+}
