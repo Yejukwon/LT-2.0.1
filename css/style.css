@@ -1160,3 +1160,28 @@ button:hover {
   color: var(--about-cream);
   background: rgba(178, 149, 91, 0.14);
 }
+
+/* About page darker background override */
+
+:root {
+  --about-bg: #010205;
+  --about-cream: #f1eadc;
+  --about-gold: #b2955b;
+  --about-brown: #3a2619;
+  --about-line: rgba(178, 149, 91, 0.32);
+}
+
+.about-page-body {
+  background: #010205 !important;
+  color: var(--about-cream);
+}
+
+.about-topbar {
+  background: #010205 !important;
+  border-bottom: 1px solid var(--about-line);
+}
+
+.about-method-card {
+  background: rgba(58, 38, 25, 0.18);
+  border-color: var(--about-line);
+}
