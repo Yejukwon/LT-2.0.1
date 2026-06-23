@@ -1185,3 +1185,30 @@ button:hover {
   background: rgba(58, 38, 25, 0.18);
   border-color: var(--about-line);
 }
+
+/* Visual essay readability override */
+
+.visual-essay,
+.visual-essay p,
+.visual-essay li,
+.visual-essay span,
+.visual-essay .essay-text,
+.visual-essay .essay-note,
+.visual-essay .caption,
+.visual-essay .muted,
+.visual-essay small {
+  color: #1f1a14 !important;
+  opacity: 1 !important;
+}
+
+.visual-essay h1,
+.visual-essay h2,
+.visual-essay h3,
+.visual-essay h4 {
+  color: #1f1a14 !important;
+  opacity: 1 !important;
+}
+
+.visual-essay a {
+  color: #1f1a14 !important;
+}
