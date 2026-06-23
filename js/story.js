@@ -6,6 +6,7 @@ const storyState = {
   metaByTag: new Map(),
   tagsByWork: new Map(),
   frequencyByTag: new Map(),
+  tagLookup: new Map(),
   currentGraph: null,
   currentOptions: {
     preset: "intro",
@@ -18,10 +19,10 @@ const storyState = {
 
 const STORY_COLORS = {
   background: "#fbf8ef",
-  text: "#201f1c",
-  muted: "#6f675c",
+  text: "#1f1a14",
+  muted: "#1f1a14",
   link: "#b7ad9a",
-  node: "#6e675f",
+  node: "#625d55",
   focus: "#111111",
   compareA: "#111111",
   shared: "#9b7a44",
@@ -66,11 +67,21 @@ function formatCategory(category) {
   return String(category).replaceAll("_", " ");
 }
 
+function tagKey(value) {
+  return cleanTag(value).replace(/\s+/g, "").toLowerCase();
+}
+
+function resolveStoryTag(value) {
+  const tag = cleanTag(value);
+  return storyState.tagLookup.get(tagKey(tag)) || tag;
+}
+
 function prepareStoryData() {
   storyState.worksById = new Map();
   storyState.metaByTag = new Map();
   storyState.tagsByWork = new Map();
   storyState.frequencyByTag = new Map();
+  storyState.tagLookup = new Map();
 
   storyState.works.forEach((work) => {
     storyState.worksById.set(String(work.work_id), work);
@@ -87,6 +98,8 @@ function prepareStoryData() {
       category,
       description: row.description || ""
     });
+
+    storyState.tagLookup.set(tagKey(tag), tag);
   });
 
   storyState.workTags.forEach((row) => {
@@ -94,6 +107,8 @@ function prepareStoryData() {
     const tag = cleanTag(row.tag);
 
     if (!workId || !tag || tag === "N/A") return;
+
+    storyState.tagLookup.set(tagKey(tag), tag);
 
     if (!storyState.tagsByWork.has(workId)) {
       storyState.tagsByWork.set(workId, new Set());
@@ -143,7 +158,7 @@ function setupStoryScroll() {
 
 function applyStoryStep(step) {
   const preset = step.dataset.preset || "intro";
-  const category = step.dataset.category || null;
+  const category = step.dataset.category ? cleanCategory(step.dataset.category) : null;
   const tags = parseTags(step.dataset.tags);
   const focusTags = new Set(parseTags(step.dataset.focus));
   const spotlightTags = new Set(parseTags(step.dataset.spotlight));
@@ -159,11 +174,17 @@ function applyStoryStep(step) {
 
   if (preset === "compare") {
     const compareTags = new Set(tags);
+    const compareCategory = category || inferComparisonCategory(tags);
+
     options.compareTags = compareTags;
-    graph = buildStoryComparisonGraph(Array.from(compareTags));
+    options.category = compareCategory;
+
+    graph = buildStoryComparisonGraph(Array.from(compareTags), compareCategory);
   } else if (preset === "inspect") {
     tags.forEach((tag) => focusTags.add(tag));
+
     options.focusTags = focusTags;
+
     graph = buildStoryGraph({
       category: guessCategoryFromTags(tags),
       minFrequency: 1,
@@ -195,8 +216,25 @@ function parseTags(value) {
 
   return String(value)
     .split(/[|,]/)
-    .map((tag) => cleanTag(tag))
+    .map((tag) => resolveStoryTag(tag))
     .filter(Boolean);
+}
+
+function inferComparisonCategory(tags) {
+  const categories = new Set();
+
+  tags.forEach((tag) => {
+    const meta = storyState.metaByTag.get(tag);
+    if (meta && meta.category) {
+      categories.add(meta.category);
+    }
+  });
+
+  if (categories.size === 1) {
+    return Array.from(categories)[0];
+  }
+
+  return null;
 }
 
 function guessCategoryFromTags(tags) {
@@ -263,8 +301,11 @@ function buildStoryGraph({ category = null, minFrequency = 1, minWeight = 1 } = 
   };
 }
 
-function buildStoryComparisonGraph(compareTags) {
-  const anchors = compareTags.filter(Boolean);
+function buildStoryComparisonGraph(compareTags, targetCategory = null) {
+  const anchors = Array.from(
+    new Set(compareTags.map((tag) => resolveStoryTag(tag)).filter(Boolean))
+  );
+
   const anchorSet = new Set(anchors);
   const targetWeights = new Map();
 
@@ -272,12 +313,28 @@ function buildStoryComparisonGraph(compareTags) {
     targetWeights.set(anchor, new Map());
   });
 
+  function isAllowedTarget(tag) {
+    if (!tag || tag === "N/A") return false;
+
+    if (anchorSet.has(tag)) {
+      return true;
+    }
+
+    if (!targetCategory) {
+      return true;
+    }
+
+    const meta = storyState.metaByTag.get(tag);
+    return meta && meta.category === targetCategory;
+  }
+
   storyState.tagsByWork.forEach((tags) => {
     anchors.forEach((anchor) => {
       if (!tags.has(anchor)) return;
 
       tags.forEach((target) => {
-        if (!target || target === "N/A" || target === anchor) return;
+        if (target === anchor) return;
+        if (!isAllowedTarget(target)) return;
 
         const anchorMap = targetWeights.get(anchor);
         anchorMap.set(target, (anchorMap.get(target) || 0) + 1);
@@ -293,6 +350,7 @@ function buildStoryComparisonGraph(compareTags) {
 
     anchorMap.forEach((weight, target) => {
       nodeIds.add(target);
+
       links.push({
         source: anchor,
         target,
@@ -303,12 +361,14 @@ function buildStoryComparisonGraph(compareTags) {
 
   const nodes = Array.from(nodeIds).map((tag) => {
     const meta = storyState.metaByTag.get(tag) || {};
+
     const comparisonWeights = anchors.map((anchor) => ({
       selected: anchor,
       weight: targetWeights.get(anchor)?.get(tag) || 0
     }));
 
     const connected = comparisonWeights.filter((item) => item.weight > 0);
+
     let comparisonGroup = "unconnected";
 
     if (anchorSet.has(tag)) {
@@ -334,6 +394,7 @@ function buildStoryComparisonGraph(compareTags) {
   return {
     mode: "comparison",
     compareTags: anchors,
+    targetCategory,
     nodes,
     links
   };
@@ -345,17 +406,21 @@ function drawStoryNetwork(graph, options) {
 
   if (!nodeEl) return;
 
-  const width = nodeEl.clientWidth || 760;
-  const height = nodeEl.clientHeight || 620;
+  const width = nodeEl.clientWidth || 900;
+  const height = nodeEl.clientHeight || 660;
 
   svg.selectAll("*").remove();
+
+  svg
+    .attr("viewBox", `0 0 ${width} ${height}`)
+    .attr("preserveAspectRatio", "xMidYMid meet");
 
   if (!graph.nodes.length) {
     svg.append("text")
       .attr("x", width / 2)
       .attr("y", height / 2)
       .attr("text-anchor", "middle")
-      .attr("fill", "#555")
+      .attr("fill", STORY_COLORS.text)
       .text("No nodes under this preset.");
     return;
   }
@@ -367,7 +432,10 @@ function drawStoryNetwork(graph, options) {
   const nodeLayer = svg.append("g").attr("class", "story-nodes");
 
   const maxWeight = d3.max(links, (d) => d.weight) || 1;
-  const linkWidth = d3.scaleSqrt().domain([1, maxWeight]).range([0.5, 5]);
+
+  const linkWidth = d3.scaleSqrt()
+    .domain([1, maxWeight])
+    .range([0.8, 7]);
 
   const link = linkLayer
     .selectAll("line")
@@ -391,28 +459,28 @@ function drawStoryNetwork(graph, options) {
 
   node.append("text")
     .text((d) => d.label)
-    .attr("x", (d) => storyNodeRadius(d, options) + 5)
+    .attr("x", (d) => storyNodeRadius(d, options) + 7)
     .attr("y", 4)
-    .attr("font-size", (d) => isHighlighted(d, options) ? 13 : 10)
+    .attr("font-size", (d) => isHighlighted(d, options) ? 15 : 12)
     .attr("font-weight", (d) => isHighlighted(d, options) ? 700 : 400)
     .attr("fill", STORY_COLORS.text);
 
   const simulation = d3.forceSimulation(nodes)
     .force("link", d3.forceLink(links).id((d) => d.id)
-      .distance((d) => graph.mode === "comparison" ? 115 : 72)
-      .strength((d) => graph.mode === "comparison" ? 0.35 : 0.28))
-    .force("charge", d3.forceManyBody().strength(graph.mode === "comparison" ? -180 : -125))
-    .force("collide", d3.forceCollide().radius((d) => storyNodeRadius(d, options) + 12));
+      .distance((d) => graph.mode === "comparison" ? 145 : 95)
+      .strength((d) => graph.mode === "comparison" ? 0.36 : 0.26))
+    .force("charge", d3.forceManyBody().strength(graph.mode === "comparison" ? -260 : -220))
+    .force("collide", d3.forceCollide().radius((d) => storyNodeRadius(d, options) + 18));
 
   if (graph.mode === "comparison") {
     simulation
-      .force("x", d3.forceX((d) => comparisonX(d, graph, width)).strength(0.82))
-      .force("y", d3.forceY((d) => comparisonY(d, graph, height)).strength(0.16));
+      .force("x", d3.forceX((d) => comparisonX(d, graph, width)).strength(0.9))
+      .force("y", d3.forceY((d) => comparisonY(d, graph, height)).strength(0.18));
   } else {
     simulation
       .force("center", d3.forceCenter(width / 2, height / 2))
-      .force("x", d3.forceX(width / 2).strength(0.04))
-      .force("y", d3.forceY(height / 2).strength(0.04));
+      .force("x", d3.forceX(width / 2).strength(0.055))
+      .force("y", d3.forceY(height / 2).strength(0.055));
   }
 
   simulation.on("tick", () => {
@@ -423,8 +491,11 @@ function drawStoryNetwork(graph, options) {
       .attr("y2", (d) => d.target.y);
 
     node.attr("transform", (d) => {
-      d.x = Math.max(20, Math.min(width - 20, d.x));
-      d.y = Math.max(20, Math.min(height - 20, d.y));
+      const padding = storyNodeRadius(d, options) + 18;
+
+      d.x = Math.max(padding, Math.min(width - padding, d.x));
+      d.y = Math.max(padding, Math.min(height - padding, d.y));
+
       return `translate(${d.x},${d.y})`;
     });
   });
@@ -433,8 +504,8 @@ function drawStoryNetwork(graph, options) {
 }
 
 function storyNodeRadius(d, options) {
-  const base = 4 + Math.sqrt(d.frequency || 1) * 2;
-  return isHighlighted(d, options) ? base + 5 : base;
+  const base = 7 + Math.sqrt(d.frequency || 1) * 3.2;
+  return isHighlighted(d, options) ? base + 6 : base;
 }
 
 function isHighlighted(d, options) {
@@ -660,16 +731,28 @@ function renderTagInspector(tag, graph) {
 
 function renderComparisonPanel(graph, options) {
   const anchors = graph.compareTags || [];
+
   const shared = graph.nodes
     .filter((node) => node.comparisonGroup === "shared")
     .sort((a, b) => b.comparisonTotalWeight - a.comparisonTotalWeight)
     .slice(0, 8);
 
+  const anchorStatus = anchors.map((tag) => {
+    const exists = storyState.frequencyByTag.has(tag);
+    return `${tag}${exists ? "" : " (not found)"}`;
+  });
+
   d3.select("#story-inspector").html(`
     <h3>Comparison</h3>
-    <p><strong>${anchors.join(" / ")}</strong></p>
+    <p><strong>${anchorStatus.join(" / ")}</strong></p>
+    ${
+      graph.targetCategory
+        ? `<p><strong>Compared within:</strong> ${formatCategory(graph.targetCategory)}</p>`
+        : ""
+    }
     <div class="story-stat-grid">
       <div><strong>${graph.nodes.length}</strong><span>Visible nodes</span></div>
+      <div><strong>${graph.links.length}</strong><span>Visible edges</span></div>
       <div><strong>${shared.length}</strong><span>Shared top nodes</span></div>
     </div>
     <h4>Shared neighboring tags</h4>
