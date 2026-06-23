@@ -283,3 +283,25 @@ button:hover {
   height: 100%;
   background: #222;
 }
+
+.node-tooltip {
+  position: fixed;
+  z-index: 1000;
+  max-width: 240px;
+  padding: 10px 12px;
+  background: rgba(20, 20, 20, 0.88);
+  color: white;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  pointer-events: none;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+}
+
+.node-tooltip.hidden {
+  display: none;
+}
+
+.node-tooltip strong {
+  font-size: 13px;
+}
