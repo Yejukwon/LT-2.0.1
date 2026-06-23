@@ -178,11 +178,16 @@ function setupPinControls() {
 
 function setupExcludeTagControl() {
   const categories = Array.from(
-    new Set(state.metadata.map((d) => d.category))
+    new Set(state.metadata.map((d) => d.category).filter(Boolean))
   ).sort();
 
   const categorySelect = d3.select("#hide-category");
   const tagSelect = d3.select("#hide-tag");
+
+  if (categorySelect.empty() || tagSelect.empty()) {
+    console.warn("Hide tag controls not found in HTML.");
+    return;
+  }
 
   categorySelect
     .selectAll("option")
@@ -236,11 +241,22 @@ function updateHideTagDropdown() {
     .join("option")
     .attr("value", (d) => d)
     .text((d) => d);
+
+  if (tags.length === 0) {
+    tagSelect
+      .selectAll("option")
+      .data([""])
+      .join("option")
+      .attr("value", "")
+      .text("No available tags");
+  }
 }
 
 function renderHiddenTagChips() {
   const tags = Array.from(state.excludedTags).sort();
   const container = d3.select("#hidden-tag-chips");
+
+  if (container.empty()) return;
 
   if (tags.length === 0) {
     container.html("No hidden tags selected.");
@@ -270,7 +286,6 @@ function renderHiddenTagChips() {
 
   updateHideTagDropdown();
 }
-
 function setupCompareControls() {
   const categories = Array.from(
     new Set(state.metadata.map((d) => d.category))
