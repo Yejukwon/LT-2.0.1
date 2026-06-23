@@ -161,8 +161,19 @@ function setupControls() {
     });
 
   setupExcludeTagControl();
-
+  setupPinControls();
   setupCompareControls();
+}
+
+function setupPinControls() {
+  d3.select("#clear-all-pins").on("click", function () {
+    state.fixedPositions.clear();
+    updateNetwork();
+
+    d3.select("#inspector").html(
+      "All pinned node positions have been cleared."
+    );
+  });
 }
 
 function setupExcludeTagControl() {
