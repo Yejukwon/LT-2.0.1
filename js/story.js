@@ -137,7 +137,7 @@ function setupStoryScroll() {
       steps.forEach((step) => step.classList.remove("active"));
       entry.target.classList.add("active");
 
-      applyStoryStep(entry.target);
+      Step(entry.target);
     });
   }, {
     threshold: 0.48
@@ -173,16 +173,14 @@ function applyStoryStep(step) {
   };
 
   if (preset === "compare") {
-  const compareTags = new Set(tags);
-  const compareCategory = category || inferComparisonCategory(tags);
+    const compareTags = new Set(tags);
 
-  options.compareTags = compareTags;
-  options.category = compareCategory;
+    options.compareTags = compareTags;
+    options.category = category;
 
-  graph = buildStoryComparisonGraph(Array.from(compareTags), compareCategory);
+    graph = buildStoryComparisonGraph(Array.from(compareTags), category);
   } else if (preset === "inspect") {
     tags.forEach((tag) => focusTags.add(tag));
-
     options.focusTags = focusTags;
 
     graph = buildStoryGraph({
@@ -302,16 +300,96 @@ function buildStoryGraph({ category = null, minFrequency = 1, minWeight = 1 } = 
 }
 
 function buildStoryComparisonGraph(compareTags, targetCategory = null) {
-  const anchors = Array.from(
-    new Set(compareTags.map((tag) => resolveStoryTag(tag)).filter(Boolean))
-  );
-
+  const anchors = compareTags.filter(Boolean);
   const anchorSet = new Set(anchors);
   const targetWeights = new Map();
 
   anchors.forEach((anchor) => {
     targetWeights.set(anchor, new Map());
   });
+
+  function isAllowedTarget(tag) {
+    if (!tag || tag === "N/A") return false;
+
+    if (anchorSet.has(tag)) return true;
+
+    if (!targetCategory) return true;
+
+    const meta = storyState.metaByTag.get(tag);
+    return meta && meta.category === targetCategory;
+  }
+
+  storyState.tagsByWork.forEach((tags) => {
+    anchors.forEach((anchor) => {
+      if (!tags.has(anchor)) return;
+
+      tags.forEach((target) => {
+        if (target === anchor) return;
+        if (!isAllowedTarget(target)) return;
+
+        const anchorMap = targetWeights.get(anchor);
+        anchorMap.set(target, (anchorMap.get(target) || 0) + 1);
+      });
+    });
+  });
+
+  const nodeIds = new Set(anchors);
+  const links = [];
+
+  anchors.forEach((anchor) => {
+    const anchorMap = targetWeights.get(anchor);
+
+    anchorMap.forEach((weight, target) => {
+      nodeIds.add(target);
+
+      links.push({
+        source: anchor,
+        target,
+        weight
+      });
+    });
+  });
+
+  const nodes = Array.from(nodeIds).map((tag) => {
+    const meta = storyState.metaByTag.get(tag) || {};
+
+    const comparisonWeights = anchors.map((anchor) => ({
+      selected: anchor,
+      weight: targetWeights.get(anchor)?.get(tag) || 0
+    }));
+
+    const connected = comparisonWeights.filter((item) => item.weight > 0);
+
+    let comparisonGroup = "unconnected";
+
+    if (anchorSet.has(tag)) {
+      comparisonGroup = "anchor";
+    } else if (connected.length > 1) {
+      comparisonGroup = "shared";
+    } else if (connected.length === 1) {
+      comparisonGroup = `only_${connected[0].selected}`;
+    }
+
+    return {
+      id: tag,
+      label: tag,
+      category: meta.category || "unknown",
+      description: meta.description || "",
+      frequency: storyState.frequencyByTag.get(tag) || 0,
+      comparisonWeights,
+      comparisonGroup,
+      comparisonTotalWeight: d3.sum(comparisonWeights, (d) => d.weight)
+    };
+  });
+
+  return {
+    mode: "comparison",
+    compareTags: anchors,
+    targetCategory,
+    nodes,
+    links
+  };
+}
 
   function isAllowedTarget(tag) {
     if (!tag || tag === "N/A") return false;
@@ -467,9 +545,9 @@ function drawStoryNetwork(graph, options) {
 
   const simulation = d3.forceSimulation(nodes)
     .force("link", d3.forceLink(links).id((d) => d.id)
-      .distance((d) => graph.mode === "comparison" ? 145 : 95)
-      .strength((d) => graph.mode === "comparison" ? 0.36 : 0.26))
-    .force("charge", d3.forceManyBody().strength(graph.mode === "comparison" ? -260 : -220))
+      .distance((d) => graph.mode === "comparison" ? 170 : 125)
+      .strength((d) => graph.mode === "comparison" ? 0.3 : 0.22))
+    .force("charge", d3.forceManyBody().strength(graph.mode === "comparison" ? -320 : -280))
     .force("collide", d3.forceCollide().radius((d) => storyNodeRadius(d, options) + 18));
 
   if (graph.mode === "comparison") {
@@ -504,8 +582,8 @@ function drawStoryNetwork(graph, options) {
 }
 
 function storyNodeRadius(d, options) {
-  const base = 7 + Math.sqrt(d.frequency || 1) * 3.2;
-  return isHighlighted(d, options) ? base + 6 : base;
+  const base = 5 + Math.sqrt(d.frequency || 1) * 2.2;
+  return isHighlighted(d, options) ? base + 4 : base;
 }
 
 function isHighlighted(d, options) {
