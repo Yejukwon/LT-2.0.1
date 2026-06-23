@@ -131,27 +131,31 @@ function setupStoryScroll() {
   const scrollRoot = document.querySelector(".story-text");
   const steps = Array.from(document.querySelectorAll(".story-step"));
 
-  if (!scrollRoot || steps.length === 0) return;
+  if (!steps.length) return;
 
   const observer = new IntersectionObserver((entries) => {
     const visibleEntries = entries
       .filter((entry) => entry.isIntersecting)
       .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
 
-    if (visibleEntries.length === 0) return;
+    if (!visibleEntries.length) return;
 
     const activeStep = visibleEntries[0].target;
 
-    steps.forEach((step) => step.classList.remove("active"));
-    activeStep.classList.add("active");
+    steps.forEach((step) => {
+      step.classList.remove("active");
+    });
 
+    activeStep.classList.add("active");
     applyStoryStep(activeStep);
   }, {
-    root: scrollRoot,
-    threshold: [0.25, 0.45, 0.65]
+    root: scrollRoot || null,
+    threshold: [0.2, 0.4, 0.6]
   });
 
-  steps.forEach((step) => observer.observe(step));
+  steps.forEach((step) => {
+    observer.observe(step);
+  });
 
   let resizeTimer = null;
 
