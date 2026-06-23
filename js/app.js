@@ -38,6 +38,7 @@ Promise.all([
     state.metadata = metadata;
 
     prepareData();
+    renderDataOverview();
     setupControls();
     updateNetwork();
   })
@@ -1179,4 +1180,94 @@ function moveNodeTooltip(event) {
 function hideNodeTooltip() {
   d3.select("#node-tooltip")
     .classed("hidden", true);
+}
+
+function buildGlobalGraphStats() {
+  const categoryCounts = new Map();
+  const degreeByTag = new Map();
+  const weightedDegreeByTag = new Map();
+
+  const allTags = Array.from(state.frequencyByTag.keys())
+    .filter((tag) => tag && tag !== "N/A");
+
+  for (const tag of allTags) {
+    const meta = state.metaByTag.get(tag);
+    const category = meta ? meta.category : "unknown";
+
+    categoryCounts.set(category, (categoryCounts.get(category) || 0) + 1);
+    degreeByTag.set(tag, 0);
+    weightedDegreeByTag.set(tag, 0);
+  }
+
+  const pairWeights = new Map();
+
+  for (const tagsSet of state.tagsByWork.values()) {
+    const tags = Array.from(tagsSet)
+      .filter((tag) => tag && tag !== "N/A")
+      .sort();
+
+    for (let i = 0; i < tags.length; i++) {
+      for (let j = i + 1; j < tags.length; j++) {
+        const key = pairKey(tags[i], tags[j]);
+        pairWeights.set(key, (pairWeights.get(key) || 0) + 1);
+      }
+    }
+  }
+
+  for (const [key, weight] of pairWeights.entries()) {
+    const [source, target] = key.split("|||");
+
+    if (!degreeByTag.has(source)) degreeByTag.set(source, 0);
+    if (!degreeByTag.has(target)) degreeByTag.set(target, 0);
+
+    if (!weightedDegreeByTag.has(source)) weightedDegreeByTag.set(source, 0);
+    if (!weightedDegreeByTag.has(target)) weightedDegreeByTag.set(target, 0);
+
+    degreeByTag.set(source, degreeByTag.get(source) + 1);
+    degreeByTag.set(target, degreeByTag.get(target) + 1);
+
+    weightedDegreeByTag.set(source, weightedDegreeByTag.get(source) + weight);
+    weightedDegreeByTag.set(target, weightedDegreeByTag.get(target) + weight);
+  }
+
+  const tagsByCategory = new Map();
+
+  for (const tag of allTags) {
+    const meta = state.metaByTag.get(tag);
+    const category = meta ? meta.category : "unknown";
+
+    if (!tagsByCategory.has(category)) {
+      tagsByCategory.set(category, []);
+    }
+
+    tagsByCategory.get(category).push({
+      tag,
+      category,
+      frequency: state.frequencyByTag.get(tag) || 0,
+      degree: degreeByTag.get(tag) || 0,
+      weightedDegree: weightedDegreeByTag.get(tag) || 0
+    });
+  }
+
+  const topByCategory = new Map();
+
+  for (const [category, tags] of tagsByCategory.entries()) {
+    const topCount = Math.max(1, Math.ceil(tags.length * 0.05));
+
+    const topTags = tags
+      .sort((a, b) => {
+        if (b.degree !== a.degree) return b.degree - a.degree;
+        return b.weightedDegree - a.weightedDegree;
+      })
+      .slice(0, topCount);
+
+    topByCategory.set(category, topTags);
+  }
+
+  return {
+    categoryCounts,
+    degreeByTag,
+    weightedDegreeByTag,
+    topByCategory
+  };
 }
