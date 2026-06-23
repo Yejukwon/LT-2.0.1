@@ -1,0 +1,298 @@
+/* Visual essay gallery and scrollytelling pages */
+
+.essay-gallery-body,
+.visual-essay-body {
+  font-family: Georgia, "Times New Roman", serif;
+  background: #f6f3ec;
+  color: #222;
+}
+
+.essay-gallery-page {
+  width: min(1180px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 84px 0 120px;
+}
+
+.essay-gallery-kicker {
+  margin: 0 0 12px;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #777;
+}
+
+.essay-gallery-hero h1 {
+  margin: 0;
+  font-size: clamp(64px, 10vw, 132px);
+  line-height: 0.92;
+  font-weight: 400;
+  letter-spacing: -0.06em;
+}
+
+.essay-gallery-hero p {
+  max-width: 720px;
+  margin-top: 22px;
+  font-size: 19px;
+  line-height: 1.6;
+}
+
+.essay-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 22px;
+  margin-top: 58px;
+}
+
+.essay-card {
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  border: 1px solid #d6cec0;
+  background: #fffaf0;
+  color: #222;
+  text-decoration: none;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.essay-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.10);
+}
+
+.essay-card-disabled {
+  opacity: 0.55;
+}
+
+.essay-card-index {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #777;
+}
+
+.essay-card h2 {
+  margin: 52px 0 14px;
+  font-size: 32px;
+  line-height: 1.05;
+  font-weight: 400;
+}
+
+.essay-card p {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.62;
+}
+
+.essay-card-cta {
+  margin-top: auto;
+  padding-top: 30px;
+  font-size: 14px;
+  text-decoration: underline;
+}
+
+.story-layout {
+  display: grid;
+  grid-template-columns: minmax(420px, 56vw) minmax(380px, 44vw);
+  min-height: 100vh;
+}
+
+.story-viz {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  padding: 22px;
+  background: #f6f3ec;
+  border-right: 1px solid #ddd3c3;
+  overflow: hidden;
+}
+
+.story-viz-header {
+  height: 74px;
+}
+
+.story-viz-label {
+  margin: 0 0 4px;
+  font-size: 11px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: #777;
+}
+
+.story-viz-header h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 400;
+}
+
+#story-network {
+  width: 100%;
+  height: calc(100vh - 290px);
+  min-height: 420px;
+  display: block;
+  background: #fbf8ef;
+  border: 1px solid #ded5c5;
+}
+
+.story-inspector {
+  height: 170px;
+  overflow-y: auto;
+  margin-top: 14px;
+  padding: 16px;
+  background: #fffaf0;
+  border: 1px solid #ded5c5;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.story-inspector h3,
+.story-inspector h4 {
+  margin: 0 0 8px;
+  font-weight: 400;
+}
+
+.story-inspector p {
+  margin: 0 0 8px;
+}
+
+.story-inspector ol {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.story-inspector li {
+  margin-bottom: 4px;
+}
+
+.story-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.story-stat-grid div {
+  padding: 8px;
+  background: #f1eadc;
+}
+
+.story-stat-grid strong,
+.story-stat-grid span {
+  display: block;
+}
+
+.story-stat-grid span {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #6d655a;
+}
+
+.story-text {
+  padding: 16vh 7vw 40vh;
+}
+
+.story-step {
+  min-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  opacity: 0.28;
+  transition: opacity 0.25s ease;
+}
+
+.story-step.active {
+  opacity: 1;
+}
+
+.story-kicker {
+  margin: 0 0 16px;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #777;
+}
+
+.story-step h1 {
+  margin: 0 0 28px;
+  font-size: clamp(46px, 6vw, 86px);
+  line-height: 0.98;
+  font-weight: 400;
+  letter-spacing: -0.05em;
+}
+
+.story-step h2 {
+  margin: 0 0 24px;
+  font-size: clamp(34px, 4vw, 52px);
+  line-height: 1.05;
+  font-weight: 400;
+  letter-spacing: -0.04em;
+}
+
+.story-body p {
+  margin: 0 0 20px;
+  font-size: 18px;
+  line-height: 1.78;
+}
+
+.story-body code {
+  padding: 1px 5px;
+  background: #efe6d4;
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.story-references {
+  margin-top: 52px;
+  padding-top: 22px;
+  border-top: 1px solid #d6cec0;
+}
+
+.story-references h3 {
+  margin: 0 0 16px;
+  font-weight: 400;
+}
+
+.story-references p {
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.story-node text {
+  pointer-events: none;
+}
+
+@media (max-width: 980px) {
+  .essay-gallery-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .story-layout {
+    display: block;
+  }
+
+  .story-viz {
+    position: relative;
+    height: auto;
+    min-height: 72vh;
+    border-right: none;
+    border-bottom: 1px solid #ddd3c3;
+  }
+
+  #story-network {
+    height: 52vh;
+  }
+
+  .story-inspector {
+    height: auto;
+    max-height: 220px;
+  }
+
+  .story-text {
+    padding: 56px 24px 120px;
+  }
+
+  .story-step {
+    min-height: auto;
+    padding: 60px 0;
+    opacity: 1;
+  }
+}
