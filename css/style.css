@@ -898,3 +898,39 @@ button:hover {
     line-height: 0.92;
   }
 }
+
+.about-title {
+  max-width: 1100px;
+  margin: 0 auto;
+  color: var(--about-cream);
+  font-family: "Times New Roman", Georgia, serif;
+  font-size: clamp(78px, 12vw, 180px);
+  font-weight: 400;
+  line-height: 0.9;
+  letter-spacing: -0.075em;
+  text-align: center;
+  text-shadow:
+    0 0 22px rgba(239, 232, 210, 0.10),
+    0 0 60px rgba(181, 155, 99, 0.08);
+}
+
+.about-title::after {
+  content: "";
+  display: block;
+  width: min(560px, 72vw);
+  height: 1px;
+  margin: 34px auto 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(181, 155, 99, 0.72),
+    transparent
+  );
+}
+
+@media (max-width: 700px) {
+  .about-title {
+    font-size: clamp(58px, 18vw, 100px);
+    letter-spacing: -0.06em;
+  }
+}
