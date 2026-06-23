@@ -658,10 +658,15 @@ if (graph.mode === "comparison") {
   .join("g")
   .attr("class", "node")
   .call(drag(simulation))
-  .on("click", function (event, d) {
-    event.stopPropagation();
-    console.log("NODE CLICKED:", d);
+  .on("mouseenter", function (event, d) {
     showNodeInspector(d);
+    showNodeTooltip(event, d);
+  })
+  .on("mousemove", function (event, d) {
+    moveNodeTooltip(event);
+  })
+  .on("mouseleave", function () {
+    hideNodeTooltip();
   })
   .on("dblclick", function (event, d) {
     event.stopPropagation();
