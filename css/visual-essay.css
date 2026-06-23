@@ -355,3 +355,21 @@
   overflow-y: auto;
   padding-bottom: 40px;
 }
+
+/* Larger hashtag network in visual essay */
+
+.essay-network-card,
+.visual-essay-network-card,
+.network-essay-card {
+  min-height: 620px;
+}
+
+.essay-network-card svg,
+.visual-essay-network-card svg,
+.network-essay-card svg,
+#essay-network,
+#girlcrush-network,
+#male-comparison-network {
+  width: 100%;
+  height: 560px;
+}
