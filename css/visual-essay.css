@@ -336,24 +336,37 @@
   height: 560px;
 }
 
-/* Visual essay layout with scrollable right panel */
+/* Visual essay fixed layout */
 
-.visual-essay-layout {
+.story-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(420px, 44vw);
+  gap: 24px;
   height: calc(100vh - 64px);
   overflow: hidden;
 }
 
-.visual-essay-main {
+/* 글은 왼쪽 */
+.story-text {
+  order: 1;
   height: calc(100vh - 64px);
   overflow-y: auto;
+  padding: 48px 32px 96px;
 }
 
-.visual-essay-side,
-.essay-side,
-.essay-inspector-panel {
+/* 그래프 + inspector는 오른쪽 */
+.story-viz {
+  order: 2;
   height: calc(100vh - 64px);
   overflow-y: auto;
-  padding-bottom: 40px;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+/* inspector가 잘리지 않게 아래 여백 */
+.story-inspector {
+  margin-top: 18px;
+  margin-bottom: 48px;
 }
 
 /* Larger hashtag network in visual essay */
