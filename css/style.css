@@ -1186,3 +1186,47 @@ button:hover {
   border-color: var(--about-line);
 }
 
+/* Language toggle */
+
+.lang-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 10px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 2px;
+}
+
+.lang-button {
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+body[data-lang="ko"] .lang-button[data-set-lang="ko"],
+body[data-lang="en"] .lang-button[data-set-lang="en"] {
+  background: currentColor;
+  color: #fffaf0;
+}
+
+/* Bilingual content display */
+
+.lang-en,
+.lang-ko {
+  display: none;
+}
+
+body[data-lang="ko"] .lang-ko {
+  display: revert;
+}
+
+body[data-lang="en"] .lang-en {
+  display: revert;
+}
