@@ -310,3 +310,55 @@ button:hover {
   fill: none !important;
   stroke: none !important;
 }
+
+.overview-note {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 12px;
+}
+
+#data-overview h3 {
+  font-size: 13px;
+  margin: 14px 0 8px;
+}
+
+.overview-stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.overview-stat-card {
+  padding: 8px;
+  background: #f4f4f4;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.overview-stat-card strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.overview-stat-card span {
+  color: #555;
+}
+
+.overview-category-block {
+  margin-top: 10px;
+}
+
+.overview-category-block h4 {
+  margin: 8px 0 4px;
+  font-size: 12px;
+}
+
+.overview-category-block ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.overview-category-block li {
+  margin: 4px 0;
+  font-size: 12px;
+}
