@@ -362,3 +362,128 @@ button:hover {
   margin: 4px 0;
   font-size: 12px;
 }
+
+
+.content-page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 70px 28px 100px;
+}
+
+.page-hero {
+  margin-bottom: 60px;
+}
+
+.eyebrow {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #777;
+}
+
+.page-hero h1 {
+  margin: 0 0 22px;
+  font-size: 42px;
+  line-height: 1.15;
+}
+
+.hero-text {
+  max-width: 760px;
+  font-size: 18px;
+  line-height: 1.7;
+  color: #444;
+}
+
+.content-section {
+  padding: 42px 0;
+  border-top: 1px solid #ddd;
+}
+
+.content-section h2 {
+  margin: 0 0 18px;
+  font-size: 28px;
+}
+
+.content-section h3 {
+  margin: 0 0 10px;
+  font-size: 18px;
+}
+
+.content-section p {
+  font-size: 16px;
+  line-height: 1.75;
+  color: #333;
+}
+
+.content-section ul {
+  padding-left: 22px;
+  font-size: 16px;
+  line-height: 1.75;
+}
+
+.content-section li {
+  margin: 8px 0;
+}
+
+.content-section code {
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: #f0ece8;
+  font-family: monospace;
+  font-size: 0.95em;
+}
+
+.method-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  margin-top: 24px;
+}
+
+.method-card {
+  padding: 18px;
+  background: #f5f2ef;
+  border-radius: 10px;
+}
+
+.method-card p {
+  margin: 0;
+  font-size: 15px;
+}
+
+.definition-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin: 24px 0;
+}
+
+.definition-list div {
+  padding: 16px;
+  background: #f5f2ef;
+  border-radius: 10px;
+}
+
+.definition-list strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 15px;
+}
+
+.definition-list p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+@media (max-width: 700px) {
+  .page-hero h1 {
+    font-size: 32px;
+  }
+
+  .definition-list {
+    grid-template-columns: 1fr;
+  }
+}
