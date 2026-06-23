@@ -289,11 +289,16 @@ function renderHiddenTagChips() {
 
 function setupCompareControls() {
   const categories = Array.from(
-    new Set(state.metadata.map((d) => d.category))
+    new Set(state.metadata.map((d) => d.category).filter(Boolean))
   ).sort();
 
   const categorySelect = d3.select("#compare-category");
   const tagSelect = d3.select("#compare-tag");
+
+  if (categorySelect.empty() || tagSelect.empty()) {
+    console.warn("Compare controls not found in HTML.");
+    return;
+  }
 
   categorySelect
     .selectAll("option")
@@ -307,12 +312,12 @@ function setupCompareControls() {
   d3.select("#add-compare-tag").on("click", function () {
     const tag = tagSelect.property("value");
 
-    if (tag) {
-      state.compareTags.add(tag);
-      renderCompareChips();
-      updateNetwork();
-      compareSelectedTags();
-    }
+    if (!tag) return;
+
+    state.compareTags.add(tag);
+    renderCompareChips();
+    updateNetwork();
+    compareSelectedTags();
   });
 
   d3.select("#show-comparison-layout").on("click", function () {
