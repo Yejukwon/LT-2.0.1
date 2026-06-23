@@ -305,3 +305,8 @@ button:hover {
 .node-tooltip strong {
   font-size: 13px;
 }
+
+.node-hit-area {
+  fill: none !important;
+  stroke: none !important;
+}
