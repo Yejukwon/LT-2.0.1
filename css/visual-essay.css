@@ -336,89 +336,83 @@
   height: 560px;
 }
 
-/* Visual essay fixed layout */
+/* visual essay layout fix */
 
 .story-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(420px, 44vw);
+  grid-template-columns: minmax(520px, 52vw) minmax(420px, 48vw);
   gap: 24px;
   height: calc(100vh - 64px);
   overflow: hidden;
 }
 
-/* 글은 왼쪽 */
-.story-text {
+/* 왼쪽: 그래프 + inspector */
+.story-viz {
   order: 1;
   height: calc(100vh - 64px);
-  overflow-y: auto;
-  padding: 48px 32px 96px;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(390px, 52vh) minmax(220px, 1fr);
+  gap: 16px;
+  padding: 20px 24px 24px;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
-/* 그래프 + inspector는 오른쪽 */
-.story-viz {
+/* 오른쪽: 스크롤 본문 */
+.story-text {
   order: 2;
   height: calc(100vh - 64px);
+  min-height: 0;
   overflow-y: auto;
-  padding: 24px;
+  padding: 32px 32px 96px;
   box-sizing: border-box;
 }
 
-/* inspector가 잘리지 않게 아래 여백 */
-.story-inspector {
-  margin-top: 18px;
-  margin-bottom: 48px;
+/* 제목 너무 큰 것 줄이기 */
+.essay-title {
+  font-size: clamp(34px, 3.6vw, 54px) !important;
+  line-height: 1.18 !important;
+  margin-bottom: 18px !important;
 }
 
-/* Larger hashtag network in visual essay */
-
-.essay-network-card,
-.visual-essay-network-card,
-.network-essay-card {
-  min-height: 620px;
-}
-
-.essay-network-card svg,
-.visual-essay-network-card svg,
-.network-essay-card svg,
-#essay-network,
-#girlcrush-network,
-#male-comparison-network {
-  width: 100%;
-  height: 560px;
-}
-
-/* Make the story network larger */
-
+/* 네트워크가 패널의 40~50% 이상 차지하게 */
 #story-network {
   width: 100%;
-  height: 58vh;
-  min-height: 500px;
+  height: 100%;
+  min-height: 390px;
   display: block;
 }
 
-.story-viz {
-  min-width: 420px;
+/* Dataset view / inspector 잘림 방지 */
+.story-inspector {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 8px;
+  padding-bottom: 32px;
 }
 
-/* Text color cleanup */
+.story-stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
 
+.story-stat-grid > div {
+  min-height: 86px;
+  box-sizing: border-box;
+}
+
+/* 회색 글씨 제거 */
 .visual-essay-body,
 .visual-essay-body p,
 .visual-essay-body li,
 .visual-essay-body span,
 .visual-essay-body small,
-.visual-essay-body .story-body,
-.visual-essay-body .story-kicker,
-.visual-essay-body .story-viz-label,
-.visual-essay-body .story-inspector {
-  color: #1f1a14;
-  opacity: 1;
-}
-
 .visual-essay-body h1,
 .visual-essay-body h2,
 .visual-essay-body h3,
 .visual-essay-body h4 {
-  color: #1f1a14;
-  opacity: 1;
+  color: #1f1a14 !important;
+  opacity: 1 !important;
 }
