@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>About | Romance Fantasy Hashtag Network</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+  <header class="topbar">
+    <div class="site-title">Romance Fantasy Hashtag Network</div>
+
+    <nav class="nav-links">
+      <a href="index.html">Explore</a>
+      <a href="about.html">About</a>
+      <a href="essay.html">Visual Essay</a>
+    </nav>
+  </header>
+
+  <main class="content-page">
+    <section class="page-hero">
+      <p class="eyebrow">About the Project</p>
+      <h1>Reading Korean Romance Fantasy Webnovels through Hashtag Networks</h1>
+      <p class="hero-text">
+        This project explores how femininity, desire, and narrative aspiration are organized
+        through the hashtag system of Korean romance fantasy webnovels. Rather than treating
+        hashtags as simple descriptive labels, the project reads them as platform-based signals
+        that shape how stories are categorized, discovered, and interpreted.
+      </p>
+    </section>
+
+    <section class="content-section">
+      <h2>Project Overview</h2>
+      <p>
+        Korean romance fantasy webnovels are often organized through highly visible keyword and
+        hashtag systems. These tags name character types, plot devices, romantic dynamics, genre
+        conventions, and emotional promises. By turning these hashtags into a network, this project
+        asks how different types of female protagonists are positioned in relation to romance tropes,
+        male lead types, and narrative structures.
+      </p>
+
+      <p>
+        The landing page of this website functions as an interactive network explorer. Users can
+        filter hashtags by category, remove dominant tags, adjust frequency thresholds, compare
+        selected hashtags, and inspect the strongest connections around each node.
+      </p>
+    </section>
+
+    <section class="content-section">
+      <h2>Research Questions</h2>
+      <ul>
+        <li>How are female protagonist types organized through platform hashtags?</li>
+        <li>Which tags function as central hubs in the romance fantasy hashtag network?</li>
+        <li>How do tags such as <strong>능력녀</strong>, <strong>걸크러쉬</strong>, and <strong>엉뚱발랄녀</strong> overlap or diverge?</li>
+        <li>What kinds of romance, genre, and plot conventions are attached to different forms of femininity?</li>
+      </ul>
+    </section>
+
+    <section class="content-section">
+      <h2>Dataset</h2>
+      <p>
+        The dataset was built from a collection of Korean romance fantasy webnovels and their
+        associated platform hashtags. Each work was assigned a unique work ID, and each hashtag
+        attached to that work was recorded as a separate work-tag relationship.
+      </p>
+
+      <div class="method-grid">
+        <div class="method-card">
+          <h3>works.csv</h3>
+          <p>
+            Contains work-level information, such as work ID, title, ranking information,
+            platform, publication form, and brief descriptive fields when available.
+          </p>
+        </div>
+
+        <div class="method-card">
+          <h3>work_tags.csv</h3>
+          <p>
+            Contains the relationship between each work and each hashtag. This file is the
+            main source for calculating hashtag frequency and co-occurrence.
+          </p>
+        </div>
+
+        <div class="method-card">
+          <h3>tag_metadata.csv</h3>
+          <p>
+            Contains manually assigned hashtag categories, such as female protagonist,
+            male protagonist, genre or plot, and hybrid.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="content-section">
+      <h2>Data Preparation</h2>
+      <p>
+        The original dataset was reorganized into a long-format structure so that each row in
+        <code>work_tags.csv</code> represents one relationship between a work and a hashtag.
+        Hashtag symbols were removed from the raw tag strings for consistency, and missing or
+        non-informative values were excluded from the network.
+      </p>
+
+      <p>
+        Hashtags were then categorized into broad analytical groups. These categories are not
+        automatic classifications. They reflect interpretive decisions made for this project in
+        order to compare how different kinds of tags operate within the same platform system.
+      </p>
+    </section>
+
+    <section class="content-section">
+      <h2>Network Methodology</h2>
+      <p>
+        In this network, each node represents a hashtag. An edge is created when two hashtags
+        appear in the same work. The weight of an edge represents the number of works in which
+        the two hashtags appear together.
+      </p>
+
+      <div class="definition-list">
+        <div>
+          <strong>Node</strong>
+          <p>A hashtag, such as <code>능력녀</code>, <code>걸크러쉬</code>, or <code>회귀물</code>.</p>
+        </div>
+
+        <div>
+          <strong>Edge</strong>
+          <p>A co-occurrence relationship between two hashtags within the same work.</p>
+        </div>
+
+        <div>
+          <strong>Frequency</strong>
+          <p>The number of works in which a hashtag appears.</p>
+        </div>
+
+        <div>
+          <strong>Edge weight</strong>
+          <p>The number of works in which two hashtags appear together.</p>
+        </div>
+      </div>
+
+      <p>
+        The visualization was built with D3.js. The graph is calculated from the source CSV files
+        in the browser, which allows the user to filter and compare the network interactively.
+      </p>
+    </section>
+
+    <section class="content-section">
+      <h2>How to Use the Network Tool</h2>
+      <ul>
+        <li>Use <strong>category filters</strong> to show or hide broad hashtag groups.</li>
+        <li>Use <strong>minimum frequency</strong> to remove hashtags that appear in fewer works.</li>
+        <li>Use <strong>minimum edge weight</strong> to remove weak co-occurrence relationships.</li>
+        <li>Use <strong>Hide Tags</strong> to remove dominant tags such as <code>능력녀</code> or <code>로맨스판타지</code>.</li>
+        <li>Use <strong>Compare Tags</strong> to compare two or more selected hashtags.</li>
+        <li>Hover over a node to see its category, frequency, and strongest connections.</li>
+        <li>Drag a node to pin it in place, and double-click to unpin it.</li>
+      </ul>
+    </section>
+
+    <section class="content-section">
+      <h2>Limitations and Data Ethics</h2>
+      <p>
+        This project does not claim that hashtags fully represent the content of a work.
+        Platform tags are shaped by discoverability, marketing, reader expectations, and genre
+        convention. They are useful cultural data, but they should not be treated as neutral or
+        complete descriptions of the text itself.
+      </p>
+
+      <p>
+        The category labels used in this project also involve interpretation. Some hashtags can
+        belong to multiple conceptual groups, and some may shift meaning depending on platform
+        context or reader usage. For this reason, the network should be read as an exploratory
+        map rather than a final classification of the genre.
+      </p>
+    </section>
+
+    <section class="content-section">
+      <h2>What This Project Shows</h2>
+      <p>
+        By visualizing hashtag relationships, this project makes it possible to see how certain
+        forms of femininity become central, repeated, or clustered within romance fantasy
+        webnovel culture. It also shows how platform metadata can reveal patterns that are not
+        always visible when reading works individually.
+      </p>
+    </section>
+  </main>
+</body>
+</html>
