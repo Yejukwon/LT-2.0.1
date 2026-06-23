@@ -40,6 +40,7 @@ Promise.all([
     prepareData();
     renderDataOverview();
     setupControls();
+    setupHelpModal();
     updateNetwork();
   })
   .catch((error) => {
@@ -1330,4 +1331,34 @@ function renderDataOverview() {
       ${categorySummary}
     </div>
   `);
+}
+
+function setupHelpModal() {
+  const helpButton = d3.select("#help-button");
+  const helpModal = d3.select("#help-modal");
+  const closeButton = d3.select("#close-help");
+
+  if (helpButton.empty() || helpModal.empty() || closeButton.empty()) {
+    return;
+  }
+
+  helpButton.on("click", function () {
+    helpModal.classed("hidden", false);
+  });
+
+  closeButton.on("click", function () {
+    helpModal.classed("hidden", true);
+  });
+
+  helpModal.on("click", function (event) {
+    if (event.target === this) {
+      helpModal.classed("hidden", true);
+    }
+  });
+
+  d3.select("body").on("keydown.help", function (event) {
+    if (event.key === "Escape") {
+      helpModal.classed("hidden", true);
+    }
+  });
 }
