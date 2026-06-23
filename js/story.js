@@ -128,26 +128,36 @@ function prepareStoryData() {
 }
 
 function setupStoryScroll() {
+  const scrollRoot = document.querySelector(".story-text");
   const steps = Array.from(document.querySelectorAll(".story-step"));
 
+  if (!scrollRoot || steps.length === 0) return;
+
   const observer = new IntersectionObserver((entries) => {
-    entries.forEach((entry) => {
-      if (!entry.isIntersecting) return;
+    const visibleEntries = entries
+      .filter((entry) => entry.isIntersecting)
+      .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
 
-      steps.forEach((step) => step.classList.remove("active"));
-      entry.target.classList.add("active");
+    if (visibleEntries.length === 0) return;
 
-      Step(entry.target);
-    });
+    const activeStep = visibleEntries[0].target;
+
+    steps.forEach((step) => step.classList.remove("active"));
+    activeStep.classList.add("active");
+
+    applyStoryStep(activeStep);
   }, {
-    threshold: 0.48
+    root: scrollRoot,
+    threshold: [0.25, 0.45, 0.65]
   });
 
   steps.forEach((step) => observer.observe(step));
 
   let resizeTimer = null;
+
   window.addEventListener("resize", () => {
     clearTimeout(resizeTimer);
+
     resizeTimer = setTimeout(() => {
       if (storyState.currentGraph) {
         drawStoryNetwork(storyState.currentGraph, storyState.currentOptions);
