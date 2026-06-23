@@ -52,10 +52,28 @@
           <h3>Hide Tags</h3>
           <p class="small-note">Select one or more tags to hide from the network.</p>
 
-          <select id="exclude-tags" multiple size="8"></select>
+          <div class="filter-block">
+            <h3>Hide Tags</h3>
+            <p class="small-note">Add tags to remove them from the network.</p>
 
-          <button id="clear-hidden-tags">Clear hidden tags</button>
-        </div>
+            <label>
+              Category
+              <select id="hide-category"></select>
+            </label>
+
+            <label>
+              Tag
+              <select id="hide-tag"></select>
+            </label>
+
+            <button id="add-hidden-tag">+ Hide tag</button>
+            <button id="clear-hidden-tags">Clear hidden tags</button>
+
+            <div id="hidden-tag-chips" class="tag-chip-area">
+              No hidden tags selected.
+            </div>
+          </div>
+         </div>
         <div class="filter-block">
           <h3>Pin Controls</h3>
           <button id="clear-all-pins">Clear all pinned nodes</button>
