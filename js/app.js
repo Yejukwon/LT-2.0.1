@@ -1162,7 +1162,7 @@ function showNodeTooltip(event, node) {
       }
       ${
         connected.length > 0
-          ? `<br>Top links:<br>${connected.map((d) => `${d.tag}: ${d.weight}`).join("<br>")}`
+          ? `<br><strong>#Top links</strong><br>${connected.map((d) => `#${d.tag} (${d.weight})`).join("<br>")}`
           : ""
       }
     `);
