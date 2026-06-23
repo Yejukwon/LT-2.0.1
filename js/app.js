@@ -177,34 +177,98 @@ function setupPinControls() {
 }
 
 function setupExcludeTagControl() {
+  const categories = Array.from(
+    new Set(state.metadata.map((d) => d.category))
+  ).sort();
+
+  const categorySelect = d3.select("#hide-category");
+  const tagSelect = d3.select("#hide-tag");
+
+  categorySelect
+    .selectAll("option")
+    .data(categories)
+    .join("option")
+    .attr("value", (d) => d)
+    .text((d) => formatCategory(d));
+
+  categorySelect.on("change", updateHideTagDropdown);
+
+  d3.select("#add-hidden-tag").on("click", function () {
+    const tag = tagSelect.property("value");
+
+    if (tag) {
+      state.excludedTags.add(tag);
+      renderHiddenTagChips();
+      updateNetwork();
+    }
+  });
+
+  d3.select("#clear-hidden-tags").on("click", function () {
+    state.excludedTags.clear();
+    renderHiddenTagChips();
+    updateNetwork();
+
+    d3.select("#inspector").html("All hidden tags have been restored.");
+  });
+
+  updateHideTagDropdown();
+  renderHiddenTagChips();
+}
+
+function updateHideTagDropdown() {
+  const selectedCategory = d3.select("#hide-category").property("value");
+
   const tags = Array.from(state.frequencyByTag.keys())
-    .filter((tag) => tag && tag !== "N/A")
+    .filter((tag) => {
+      if (!tag || tag === "N/A") return false;
+      if (state.excludedTags.has(tag)) return false;
+
+      const meta = state.metaByTag.get(tag);
+      return meta && meta.category === selectedCategory;
+    })
     .sort();
 
-  const select = d3.select("#exclude-tags");
+  const tagSelect = d3.select("#hide-tag");
 
-  select
+  tagSelect
     .selectAll("option")
     .data(tags)
     .join("option")
     .attr("value", (d) => d)
     .text((d) => d);
+}
 
-  select.on("change", function () {
-    const selected = Array.from(this.selectedOptions).map((option) => option.value);
+function renderHiddenTagChips() {
+  const tags = Array.from(state.excludedTags).sort();
+  const container = d3.select("#hidden-tag-chips");
 
-    state.excludedTags = new Set(selected);
+  if (tags.length === 0) {
+    container.html("No hidden tags selected.");
+    updateHideTagDropdown();
+    return;
+  }
 
-    updateNetwork();
-  });
+  const chips = container
+    .selectAll(".tag-chip")
+    .data(tags, (d) => d)
+    .join("span")
+    .attr("class", "tag-chip");
 
-  d3.select("#clear-hidden-tags").on("click", function () {
-    state.excludedTags.clear();
+  chips.html("");
 
-    select.selectAll("option").property("selected", false);
+  chips.append("span").text((d) => d);
 
-    updateNetwork();
-  });
+  chips.append("button")
+    .text("×")
+    .on("click", function (event, tag) {
+      event.stopPropagation();
+
+      state.excludedTags.delete(tag);
+      renderHiddenTagChips();
+      updateNetwork();
+    });
+
+  updateHideTagDropdown();
 }
 
 function setupCompareControls() {
