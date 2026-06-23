@@ -433,8 +433,29 @@ function drawStoryNetwork(graph, options) {
   const nodes = graph.nodes.map((d) => ({ ...d }));
   const links = graph.links.map((d) => ({ ...d }));
 
-  const linkLayer = svg.append("g").attr("class", "story-links");
-  const nodeLayer = svg.append("g").attr("class", "story-nodes");
+  const zoomLayer = svg.append("g")
+    .attr("class", "story-zoom-layer");
+
+  const linkLayer = zoomLayer.append("g")
+    .attr("class", "story-links");
+
+  const nodeLayer = zoomLayer.append("g")
+    .attr("class", "story-nodes");
+
+  const zoom = d3.zoom()
+    .scaleExtent([0.35, 4])
+    .translateExtent([
+      [-width * 2, -height * 2],
+      [width * 3, height * 3]
+    ])
+    .on("zoom", function (event) {
+      zoomLayer.attr("transform", event.transform);
+    });
+
+  svg
+    .call(zoom)
+    .on("dblclick.zoom", null)
+    .call(zoom.transform, d3.zoomIdentity);
 
   const maxWeight = d3.max(links, (d) => d.weight) || 1;
 
@@ -488,6 +509,34 @@ function drawStoryNetwork(graph, options) {
       .force("y", d3.forceY(height / 2).strength(0.055));
   }
 
+  node
+    .call(storyDrag(simulation, nodeEl))
+    .on("mouseenter", function (event, d) {
+      d3.select(this).classed("hovered", true).raise();
+      renderStoryHoverInspector(d, graph, options);
+    })
+    .on("mouseleave", function () {
+      d3.select(this).classed("hovered", false);
+      updateStoryTextPanel(graph, options);
+    })
+    .on("dblclick", function (event, d) {
+      event.stopPropagation();
+
+      d.fx = null;
+      d.fy = null;
+      d.pinned = false;
+
+      d3.select(this).classed("pinned", false);
+
+      simulation.alphaTarget(0.18).restart();
+
+      setTimeout(() => {
+        simulation.alphaTarget(0);
+      }, 350);
+
+      renderStoryHoverInspector(d, graph, options);
+    });
+
   simulation.on("tick", () => {
     link
       .attr("x1", (d) => d.source.x)
@@ -506,6 +555,120 @@ function drawStoryNetwork(graph, options) {
   });
 
   d3.select("#story-viz-title").text(visualTitle(graph, options));
+}
+
+function storyDrag(simulation, svgNode) {
+  function graphPoint(event) {
+    const transform = d3.zoomTransform(svgNode);
+    const sourceEvent = event.sourceEvent || event;
+    const [x, y] = d3.pointer(sourceEvent, svgNode);
+
+    return transform.invert([x, y]);
+  }
+
+  return d3.drag()
+    .on("start", function (event, d) {
+      if (event.sourceEvent) {
+        event.sourceEvent.stopPropagation();
+      }
+
+      const [x, y] = graphPoint(event);
+
+      d.fx = x;
+      d.fy = y;
+      d.pinned = true;
+
+      d3.select(this).classed("pinned", true);
+
+      if (!event.active) {
+        simulation.alphaTarget(0.25).restart();
+      }
+    })
+    .on("drag", function (event, d) {
+      const [x, y] = graphPoint(event);
+
+      d.fx = x;
+      d.fy = y;
+      d.pinned = true;
+
+      d3.select(this).classed("pinned", true);
+    })
+    .on("end", function (event, d) {
+      const [x, y] = graphPoint(event);
+
+      d.fx = x;
+      d.fy = y;
+      d.pinned = true;
+
+      d3.select(this).classed("pinned", true);
+
+      if (!event.active) {
+        simulation.alphaTarget(0);
+      }
+    });
+}
+
+function renderStoryHoverInspector(node, graph, options) {
+  const connections = graph.links
+    .filter((link) => {
+      const source = getLinkName(link.source);
+      const target = getLinkName(link.target);
+
+      return source === node.id || target === node.id;
+    })
+    .map((link) => {
+      const source = getLinkName(link.source);
+      const target = getLinkName(link.target);
+
+      return {
+        tag: source === node.id ? target : source,
+        weight: link.weight
+      };
+    })
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, 8);
+
+  const comparisonInfo = node.comparisonWeights
+    ? `
+      <h4>Comparison weights</h4>
+      <ol>
+        ${
+          node.comparisonWeights
+            .map((item) => `<li><strong>${item.selected}</strong> <span>${item.weight}</span></li>`)
+            .join("")
+        }
+      </ol>
+    `
+    : "";
+
+  d3.select("#story-inspector").html(`
+    <h3>${node.label}</h3>
+
+    <div class="story-stat-grid">
+      <div><strong>${node.frequency}</strong><span>Frequency</span></div>
+      <div><strong>${connections.length}</strong><span>Visible links</span></div>
+    </div>
+
+    <p><strong>Category:</strong> ${formatCategory(node.category)}</p>
+    <p><strong>Pinned:</strong> ${node.pinned ? "Yes" : "No"}</p>
+
+    ${node.description ? `<p>${node.description}</p>` : ""}
+
+    ${comparisonInfo}
+
+    <h4>Strongest visible connections</h4>
+    <ol>
+      ${
+        connections.length
+          ? connections.map((d) => `<li><strong>${d.tag}</strong> <span>${d.weight}</span></li>`).join("")
+          : "<li>No visible connections under this preset.</li>"
+      }
+    </ol>
+
+    <p class="story-interaction-note">
+      Scroll or pinch inside the network to zoom. Drag a node to pin it. Double-click a node to unpin it.
+    </p>
+  `);
 }
 
 function storyNodeRadius(d, options) {
