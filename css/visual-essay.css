@@ -386,3 +386,16 @@
   width: 100%;
   height: 560px;
 }
+
+/* Make the story network larger */
+
+#story-network {
+  width: 100%;
+  height: 58vh;
+  min-height: 500px;
+  display: block;
+}
+
+.story-viz {
+  min-width: 420px;
+}
