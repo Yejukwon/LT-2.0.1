@@ -286,6 +286,7 @@ function renderHiddenTagChips() {
 
   updateHideTagDropdown();
 }
+
 function setupCompareControls() {
   const categories = Array.from(
     new Set(state.metadata.map((d) => d.category))
@@ -314,23 +315,6 @@ function setupCompareControls() {
     }
   });
 
-  d3.select("#clear-compare-tags").on("click", function () {
-    state.compareTags.clear();
-    state.viewMode = "full";
-
-    renderCompareChips();
-    updateNetwork();
-
-    d3.select("#compare-results").html(
-      "Add two or more tags to compare their co-occurrence patterns."
-    );
-  });
-
-    d3.select("#compare-results").html(
-      "Add two or more tags to compare their co-occurrence patterns."
-    );
-  });
-
   d3.select("#show-comparison-layout").on("click", function () {
     if (state.compareTags.size < 2) {
       d3.select("#compare-results").html(
@@ -342,6 +326,18 @@ function setupCompareControls() {
     state.viewMode = "comparison";
     updateNetwork();
     compareSelectedTags();
+  });
+
+  d3.select("#clear-compare-tags").on("click", function () {
+    state.compareTags.clear();
+    state.viewMode = "full";
+
+    renderCompareChips();
+    updateNetwork();
+
+    d3.select("#compare-results").html(
+      "Add two or more tags to compare their co-occurrence patterns."
+    );
   });
 
   updateCompareTagDropdown();
