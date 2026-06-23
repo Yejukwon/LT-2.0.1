@@ -416,3 +416,36 @@
   color: #1f1a14 !important;
   opacity: 1 !important;
 }
+
+/* Interactive story network */
+
+#story-network {
+  cursor: grab;
+  touch-action: none;
+  overflow: hidden;
+}
+
+#story-network:active {
+  cursor: grabbing;
+}
+
+.story-node {
+  cursor: pointer;
+}
+
+.story-node text {
+  pointer-events: none;
+  user-select: none;
+}
+
+.story-node.hovered circle,
+.story-node.pinned circle {
+  stroke: #111111 !important;
+  stroke-width: 3px !important;
+}
+
+.story-interaction-note {
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}
