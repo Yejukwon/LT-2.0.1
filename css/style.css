@@ -1106,3 +1106,57 @@ button:hover {
     grid-template-columns: 1fr;
   }
 }
+
+/* About page final color override */
+
+:root {
+  --about-bg: #020814;
+  --about-cream: #f1eadc;
+  --about-gold: #b2955b;
+  --about-brown: #4f3828;
+  --about-line: rgba(178, 149, 91, 0.35);
+}
+
+.about-page-body {
+  background: #020814 !important;
+  color: var(--about-cream);
+}
+
+.about-topbar {
+  background: #020814 !important;
+  border-bottom: 1px solid var(--about-line);
+}
+
+.about-page {
+  width: min(1480px, calc(100% - 48px));
+}
+
+.about-title {
+  color: var(--about-cream);
+  font-size: clamp(110px, 13.5vw, 230px);
+  font-weight: 400;
+  line-height: 0.9;
+  letter-spacing: -0.065em;
+  text-align: left;
+}
+
+.about-subtitle {
+  color: var(--about-cream);
+  opacity: 1;
+}
+
+.about-section h2 {
+  color: var(--about-gold);
+}
+
+.about-section p,
+.about-text p {
+  color: var(--about-cream);
+  opacity: 1;
+}
+
+.about-section code,
+.about-text code {
+  color: var(--about-cream);
+  background: rgba(178, 149, 91, 0.14);
+}
