@@ -316,8 +316,15 @@ function setupCompareControls() {
 
   d3.select("#clear-compare-tags").on("click", function () {
     state.compareTags.clear();
+    state.viewMode = "full";
+
     renderCompareChips();
     updateNetwork();
+
+    d3.select("#compare-results").html(
+      "Add two or more tags to compare their co-occurrence patterns."
+    );
+  });
 
     d3.select("#compare-results").html(
       "Add two or more tags to compare their co-occurrence patterns."
@@ -335,11 +342,6 @@ function setupCompareControls() {
     state.viewMode = "comparison";
     updateNetwork();
     compareSelectedTags();
-  });
-
-  d3.select("#show-full-layout").on("click", function () {
-    state.viewMode = "full";
-    updateNetwork();
   });
 
   updateCompareTagDropdown();
@@ -876,31 +878,48 @@ function showNodeInspector(node) {
       };
     })
     .sort((a, b) => b.weight - a.weight)
-    .slice(0, 12);
+    .slice(0, 10);
 
   d3.select("#inspector").html(`
-  <strong>${node.label}</strong><br>
-  Category: ${formatCategory(node.category)}<br>
-  Frequency: ${node.frequency}<br>
+    <div class="inspector-card">
+      <h3>${node.label}</h3>
 
-  ${node.comparisonGroup ? `Comparison group: ${node.comparisonGroup}<br>` : ""}
+      <div class="inspector-meta">
+        <div><strong>Category</strong><br>${formatCategory(node.category)}</div>
+        <div><strong>Frequency</strong><br>${node.frequency}</div>
+        <div><strong>Pinned</strong><br>${state.fixedPositions.has(node.id) ? "Yes" : "No"}</div>
+      </div>
 
-  ${
-    node.comparisonWeights
-      ? renderComparisonBars(node.comparisonWeights)
-      : ""
-  }
+      ${
+        node.comparisonGroup
+          ? `<p><strong>Comparison group:</strong> ${node.comparisonGroup}</p>`
+          : ""
+      }
 
-  Pinned: ${state.fixedPositions.has(node.id) ? "Yes" : "No"}<br>
-  <span class="pinned-note">Drag to pin. Double-click to unpin.</span><br><br>
+      ${
+        node.comparisonWeights
+          ? renderComparisonBars(node.comparisonWeights)
+          : ""
+      }
 
-  ${node.description ? `<p>${node.description}</p>` : ""}
+      ${
+        node.description
+          ? `<p>${node.description}</p>`
+          : ""
+      }
 
-  <strong>Top connections</strong>
-  <ol class="inspector-list">
-    ${connected.map((d) => `<li>${d.tag}: ${d.weight}</li>`).join("")}
-  </ol>
-`);
+      <h4>Strongest connections</h4>
+      <ol class="inspector-list">
+        ${
+          connected.length > 0
+            ? connected.map((d) => `<li><strong>${d.tag}</strong>: ${d.weight}</li>`).join("")
+            : "<li>No visible connections under the current filters.</li>"
+        }
+      </ol>
+
+      <p class="small-note">Drag to pin. Double-click to unpin.</p>
+    </div>
+  `);
 }
 
 function showEdgeInspector(edge) {
@@ -1089,7 +1108,7 @@ function renderComparisonBars(weights) {
 
   return `
     <div class="compare-weight-list">
-      <strong>Comparison weights</strong>
+      <h4>Comparison weights</h4>
       ${
         weights.map((item) => {
           const width = maxWeight === 0 ? 0 : (item.weight / maxWeight) * 100;
