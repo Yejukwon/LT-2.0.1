@@ -1273,6 +1273,30 @@ function buildGlobalGraphStats() {
 }
 
 function renderDataOverview() {
+  const uniqueTags = Array.from(state.frequencyByTag.keys())
+    .filter((tag) => tag && tag !== "N/A");
+
+  const categoryCounts = new Map();
+
+  uniqueTags.forEach((tag) => {
+    const meta = state.metaByTag.get(tag);
+    const category = meta ? meta.category : "unknown";
+
+    categoryCounts.set(category, (categoryCounts.get(category) || 0) + 1);
+  });
+
+  const categorySummary = Array.from(categoryCounts.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([category, count]) => {
+      return `
+        <div class="overview-stat-card">
+          <strong>${formatCategory(category)}</strong>
+          <span>${count} tags</span>
+        </div>
+      `;
+    })
+    .join("");
+
   d3.select("#data-overview").html(`
     <div class="overview-note">
       Fixed summary based on the full dataset.
@@ -1292,13 +1316,18 @@ function renderDataOverview() {
 
       <div class="overview-stat-card">
         <strong>Unique tags</strong>
-        <span>${state.frequencyByTag.size}</span>
+        <span>${uniqueTags.length}</span>
       </div>
 
       <div class="overview-stat-card">
         <strong>Categories</strong>
-        <span>${new Set(state.metadata.map((d) => d.category)).size}</span>
+        <span>${categoryCounts.size}</span>
       </div>
+    </div>
+
+    <h3>Nodes by category</h3>
+    <div class="overview-stat-grid">
+      ${categorySummary}
     </div>
   `);
 }
