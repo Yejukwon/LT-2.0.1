@@ -1255,3 +1255,10 @@ body[data-lang="en"] .lang-en {
 /* Distinct matching-works panel */
 #works-panel { border-top: 2px solid #b9a8a0; }
 #works-panel .works-panel-heading { margin-bottom: 8px; }
+
+/* AND / OR matching feedback */
+#works-panel .works-match-mode { gap:8px; }
+#works-panel .works-match-mode label { border:1px solid #bdb7b2; border-radius:6px; padding:8px 10px; }
+#works-panel .works-match-mode label:has(input:checked) { background:#e8dedb; border-color:#8c736a; font-weight:700; }
+.works-breakdown { display:flex; flex-direction:column; gap:4px; margin:8px 0 12px; }
+.works-breakdown-row { padding:5px 8px; border-left:3px solid #9a8e88; background:#f5f2f0; font-size:12px; }

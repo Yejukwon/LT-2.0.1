@@ -114,7 +114,7 @@
           <h2>Matching Works</h2>
           <button id="toggle-works-list" type="button">Hide list</button>
         </div>
-        <p class="small-note">Select tags here independently of Compare Tags. Results update automatically. (v3)</p>
+        <p class="small-note">Select tags here independently of Compare Tags. Results update automatically. (v4)</p>
         <label for="works-category">Category</label>
         <select id="works-category"></select>
         <label for="works-tag">Tag</label>
@@ -124,10 +124,12 @@
         </div>
         <div id="selected-works-tags" class="tag-chip-area">No tags selected.</div>
         <div class="works-match-mode" role="group" aria-label="Match condition">
-          <label><input type="radio" name="works-match" value="all" checked> ALL tags</label>
-          <label><input type="radio" name="works-match" value="any"> ANY tag</label>
+          <label><input type="radio" name="works-match" value="all" checked> AND · ALL tags</label>
+          <label><input type="radio" name="works-match" value="any"> OR · ANY tag</label>
         </div>
-        <p id="works-count" class="small-note"></p>
+        <p id="works-mode-help" class="small-note" aria-live="polite"></p>
+        <p id="works-count" class="small-note" aria-live="polite"></p>
+        <div id="works-breakdown" class="works-breakdown"></div>
         <div id="works-list">Add a tag to see matching works.</div>
         <button id="back-full-network" type="button">Back to full network</button>
       </section>

@@ -456,6 +456,8 @@ function buildWorksGraph() {
     const tags = state.tagsByWork.get(work.work_id) || new Set();
     nodes.push({ id, label: work.title || work.work_id,
       type: "work", work_id: work.work_id, frequency: 1,
+      matchedTags: chosen.filter(tag => tags.has(tag)),
+      matchCount: chosen.filter(tag => tags.has(tag)).length,
       category: "work" });
     for (const tag of chosen) {
       if (tags.has(tag)) links.push({ source: tag, target: id, weight: 1, type: "tag-work" });
@@ -542,10 +544,27 @@ function renderWorksList() {
   const count = d3.select("#works-count");
   if (!state.worksTags.size) {
     count.text("");
+    d3.select("#works-mode-help").text("Choose tags to explore their intersection (AND) or union (OR).");
+    d3.select("#works-breakdown").html("");
     panel.text("Add a tag to see matching works.");
     return;
   }
   const works = getMatchingWorks();
+  d3.select("#works-mode-help").text(state.worksMatchMode === "all"
+    ? "AND: Each work must contain every selected tag."
+    : "OR: Each work must contain at least one selected tag. Filled circles indicate works matching multiple tags.");
+  const breakdown = d3.select("#works-breakdown");
+  const matchCounts = new Map();
+  for (const work of works) {
+    const tags = state.tagsByWork.get(work.work_id) || new Set();
+    const matched = Array.from(state.worksTags).filter(tag => tags.has(tag)).length;
+    matchCounts.set(matched, (matchCounts.get(matched) || 0) + 1);
+  }
+  const groups = Array.from(matchCounts.entries()).sort((a,b) => b[0] - a[0]);
+  breakdown.selectAll("div.works-breakdown-row")
+    .data(groups, d => d[0]).join("div")
+    .attr("class", "works-breakdown-row")
+    .text(d => `${d[0]} of ${state.worksTags.size} selected tags: ${d[1]} work(s)`);
   count.text(`${works.length} matching work(s) · ${state.worksMatchMode === "all" ? "ALL" : "ANY"} of ${state.worksTags.size} selected tag(s)`);
   if (!works.length) {
     panel.text("No matching works. Try removing a tag or switching to ANY.");
@@ -556,7 +575,11 @@ function renderWorksList() {
     .join("button")
     .attr("type", "button")
     .attr("class", "work-list-item")
-    .text(d => d.title || d.work_id)
+    .text(d => {
+      const tags = state.tagsByWork.get(d.work_id) || new Set();
+      const n = Array.from(state.worksTags).filter(tag => tags.has(tag)).length;
+      return `${d.title || d.work_id} (${n}/${state.worksTags.size})`;
+    })
     .on("click", (event, d) => showWorkInspector(d));
 }
 
@@ -815,6 +838,7 @@ if (graph.mode === "comparison") {
   .attr("class", "node")
   .call(drag(simulation))
   .on("mouseenter", function (event, d) {
+    if (graph.mode === "works" && d.type === "work") d3.select(this).select("text").style("display", null);
     if (d.type === "work") showWorkInspector(state.worksById.get(d.work_id));
     else showNodeInspector(d);
     showNodeTooltip(event, d);
@@ -826,7 +850,8 @@ if (graph.mode === "comparison") {
   .on("mousemove", function (event, d) {
     moveNodeTooltip(event);
   })
-  .on("mouseleave", function () {
+  .on("mouseleave", function (event, d) {
+    if (graph.mode === "works" && d.type === "work") d3.select(this).select("text").style("display", "none");
     hideNodeTooltip();
   })
   .on("dblclick", function (event, d) {
@@ -859,6 +884,7 @@ if (graph.mode === "comparison") {
   
   node.append("text")
     .text((d) => d.label)
+    .style("display", (d) => graph.mode === "works" && d.type === "work" ? "none" : null)
     .attr("x", (d) => (d.type === "work" ? 5 : nodeRadius(d)) + 6)
     .attr("y", 4)
     .attr("font-size", (d) => d.type === "work" ? "10px" : "12px")
@@ -947,7 +973,9 @@ function nodeRadius(d) {
 }
 
 function nodeColor(d) {
-  if (d.type === "work") return "#f9f9f9";
+  if (d.type === "work") {
+    return d.matchCount > 1 ? "#77716e" : "#ffffff";
+  }
   const graph = state.currentGraph;
 
   if (graph && graph.mode === "works") return categoryColor(d.category);
