@@ -42,13 +42,17 @@ Promise.all([
 
     prepareData();
     renderDataOverview();
+    // Initialize the two independent tag selectors first. A failure in an
+    // unrelated panel must not leave Matching Works with empty dropdowns.
+    setupWorksControls();
     setupControls();
     setupHelpModal();
     updateNetwork();
   })
   .catch((error) => {
     console.error(error);
-    d3.select("#data-status").text("Failed to load CSV files. Check file paths and names.");
+    d3.select("#data-status").text("Could not initialize the explorer: " + error.message);
+    d3.select("#works-mode-help").text("Dropdowns could not load. Check the Data Status section above.");
   });
 
 function cleanTag(tag) {
@@ -168,7 +172,6 @@ function setupControls() {
   setupExcludeTagControl();
   setupPinControls();
   setupCompareControls();
-  setupWorksControls();
 }
 
 function setupPinControls() {
@@ -467,13 +470,30 @@ function buildWorksGraph() {
 }
 
 function setupWorksControls() {
+  const categorySelect = d3.select("#works-category");
+  const tagSelect = d3.select("#works-tag");
+  if (categorySelect.empty() || tagSelect.empty()) {
+    console.error("Matching Works selectors are missing from index.html.");
+    return;
+  }
+
   const categories = Array.from(new Set(
-    Array.from(state.frequencyByTag.keys()).map(tag => state.metaByTag.get(tag)?.category || "unknown")
+    Array.from(state.frequencyByTag.keys())
+      .map(tag => state.metaByTag.get(tag)?.category || "unknown")
   )).sort();
-  d3.select("#works-category")
-    .selectAll("option").data(categories).join("option")
-    .attr("value", d => d).text(d => formatCategory(d));
-  d3.select("#works-category").on("change", updateWorksTagDropdown);
+
+  categorySelect.selectAll("option")
+    .data(categories).join("option")
+    .attr("value", d => d)
+    .text(d => formatCategory(d));
+
+  if (!categories.length) {
+    categorySelect.selectAll("option").data(["No tags loaded"]).join("option")
+      .attr("value", "").text(d => d);
+    d3.select("#works-mode-help").text("No hashtag data loaded. Check data/work_tags.csv and reload.");
+  }
+
+  categorySelect.on("change", updateWorksTagDropdown);
   d3.select("#add-works-tag").on("click", () => {
     const tag = d3.select("#works-tag").property("value");
     if (!tag || state.worksTags.has(tag)) return;
@@ -505,6 +525,7 @@ function setupWorksControls() {
 
 function updateWorksTagDropdown() {
   const category = d3.select("#works-category").property("value");
+  if (!category) return;
   const available = Array.from(state.frequencyByTag.keys())
     .filter(tag => (state.metaByTag.get(tag)?.category || "unknown") === category)
     .filter(tag => !state.worksTags.has(tag))
