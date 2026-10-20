@@ -1240,4 +1240,18 @@ body[data-lang="en"] .lang-en {
 .work-list-item:hover { background:#f3f0ee; }
 .work-tag-cloud { display:flex; flex-wrap:wrap; gap:6px; }
 .work-tag-cloud span { font-size:12px; padding:4px 7px; border-radius:12px; background:#f0ebe8; }
-#show-matching-works { margin-top:8px; }
+
+/* Matching Works: independent live tag picker */
+#works-panel label { display:block; margin:9px 0 5px; }
+#works-panel select { width:100%; min-width:0; }
+.works-add-row { display:flex; align-items:center; gap:8px; }
+.works-add-row select { flex:1; min-width:0; }
+.works-add-row button { flex:0 0 auto; white-space:nowrap; }
+#selected-works-tags { margin:12px 0; }
+.works-match-mode { display:flex; flex-wrap:wrap; gap:15px; margin:10px 0; }
+.works-match-mode label { display:inline-flex !important; align-items:center; gap:5px; margin:0 !important; cursor:pointer; }
+#back-full-network { margin-top:10px; }
+
+/* Distinct matching-works panel */
+#works-panel { border-top: 2px solid #b9a8a0; }
+#works-panel .works-panel-heading { margin-bottom: 8px; }
