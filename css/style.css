@@ -1230,3 +1230,14 @@ body[data-lang="ko"] .lang-ko {
 body[data-lang="en"] .lang-en {
   display: revert;
 }
+
+/* Matching works feature */
+.works-panel-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.works-panel-heading h2 { margin:0; }
+#works-list.hidden { display:none; }
+#works-list { max-height:270px; overflow-y:auto; }
+.work-list-item { display:block; width:100%; text-align:left; padding:9px 7px; border:0; border-bottom:1px solid #eee; background:transparent; color:#333; cursor:pointer; font-size:12px; }
+.work-list-item:hover { background:#f3f0ee; }
+.work-tag-cloud { display:flex; flex-wrap:wrap; gap:6px; }
+.work-tag-cloud span { font-size:12px; padding:4px 7px; border-radius:12px; background:#f0ebe8; }
+#show-matching-works { margin-top:8px; }
