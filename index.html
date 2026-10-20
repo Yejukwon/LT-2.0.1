@@ -75,7 +75,6 @@
               No hidden tags selected.
             </div>
           </div>
-         </div>
         <div class="filter-block">
           
         <h3>Pin Controls</h3>
@@ -99,8 +98,6 @@
 
         <button id="add-compare-tag">+ Add tag</button>
         <button id="show-comparison-layout">Show comparison layout</button>
-        <button id="show-matching-works" type="button">Show matching works (ALL tags)</button>
-        <button id="back-full-network" type="button">Back to full network</button>
         <button id="clear-compare-tags">Clear comparison</button>
         
         <div id="selected-compare-tags" class="tag-chip-area">
@@ -117,8 +114,22 @@
           <h2>Matching Works</h2>
           <button id="toggle-works-list" type="button">Hide list</button>
         </div>
+        <p class="small-note">Select tags here independently of Compare Tags. Results update automatically. (v3)</p>
+        <label for="works-category">Category</label>
+        <select id="works-category"></select>
+        <label for="works-tag">Tag</label>
+        <div class="works-add-row">
+          <select id="works-tag"></select>
+          <button id="add-works-tag" type="button">+ Add tag</button>
+        </div>
+        <div id="selected-works-tags" class="tag-chip-area">No tags selected.</div>
+        <div class="works-match-mode" role="group" aria-label="Match condition">
+          <label><input type="radio" name="works-match" value="all" checked> ALL tags</label>
+          <label><input type="radio" name="works-match" value="any"> ANY tag</label>
+        </div>
         <p id="works-count" class="small-note"></p>
-        <div id="works-list">Select tags above to view works.</div>
+        <div id="works-list">Add a tag to see matching works.</div>
+        <button id="back-full-network" type="button">Back to full network</button>
       </section>
 
       <section class="panel-section">
