@@ -55,6 +55,16 @@ Promise.all([
     d3.select("#works-mode-help").text("Dropdowns could not load. Check the Data Status section above.");
   });
 
+// Removes bare text such as "No tags selected." left behind by an earlier
+// empty-state message, so it does not sit next to newly drawn chips/items.
+function clearPlaceholderText(selection) {
+  const el = selection.node();
+  if (!el) return;
+  Array.from(el.childNodes)
+    .filter((n) => n.nodeType === Node.TEXT_NODE)
+    .forEach((n) => n.remove());
+}
+
 function cleanTag(tag) {
   return String(tag || "")
     .trim()
@@ -273,6 +283,8 @@ function renderHiddenTagChips() {
     return;
   }
 
+  clearPlaceholderText(container);
+
   const chips = container
     .selectAll(".tag-chip")
     .data(tags, (d) => d)
@@ -387,6 +399,8 @@ function renderCompareChips() {
     container.html("No comparison tags selected.");
     return;
   }
+
+  clearPlaceholderText(container);
 
   const chips = container
     .selectAll(".tag-chip")
@@ -544,6 +558,7 @@ function renderWorksChips() {
     panel.text("No tags selected.");
     return;
   }
+  clearPlaceholderText(panel);
   const chips = panel.selectAll("span.tag-chip").data(tags, d => d)
     .join("span").attr("class", "tag-chip");
   chips.html("");
@@ -591,6 +606,7 @@ function renderWorksList() {
     panel.text("No matching works. Try removing a tag or switching to ANY.");
     return;
   }
+  clearPlaceholderText(panel);
   panel.selectAll("button.work-list-item")
     .data(works, d => d.work_id)
     .join("button")
@@ -975,14 +991,6 @@ function comparisonX(d, width) {
 }
 
 function comparisonY(d, height) {
-  if (state.compareTags.has(d.id)) {
-    return height * 0.5;
-  }
-
-  return height * 0.5;
-}
-
-function comparisonY(d, height) {
   if (d.comparisonGroup === "anchor_a") return height * 0.50;
   if (d.comparisonGroup === "anchor_b") return height * 0.50;
 
@@ -1151,58 +1159,6 @@ function showEdgeInspector(edge) {
 
     ${works.length === 10 ? `<p class="small-note">Showing first 10 works.</p>` : ""}
   `);
-}
-
-function updateCompareTagDropdown() {
-  const selectedCategory = d3.select("#compare-category").property("value");
-
-  const tags = Array.from(state.frequencyByTag.keys())
-    .filter((tag) => {
-      const meta = state.metaByTag.get(tag);
-      return meta && meta.category === selectedCategory;
-    })
-    .sort();
-
-  const tagSelect = d3.select("#compare-tag");
-
-  tagSelect
-    .selectAll("option")
-    .data(tags)
-    .join("option")
-    .attr("value", (d) => d)
-    .text((d) => d);
-}
-
-function renderCompareChips() {
-  const tags = Array.from(state.compareTags);
-
-  const container = d3.select("#selected-compare-tags");
-
-  if (tags.length === 0) {
-    container.html("No comparison tags selected.");
-    return;
-  }
-
-  const chips = container
-    .selectAll(".tag-chip")
-    .data(tags, (d) => d)
-    .join("span")
-    .attr("class", "tag-chip");
-
-  chips.html("");
-
-  chips.append("span").text((d) => d);
-
-  chips.append("button")
-    .text("×")
-    .on("click", function (event, tag) {
-      event.stopPropagation();
-
-      state.compareTags.delete(tag);
-      renderCompareChips();
-      updateNetwork();
-      compareSelectedTags();
-    });
 }
 
 function getWorksForPair(tagA, tagB) {
