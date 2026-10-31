@@ -617,7 +617,7 @@ function renderWorksList() {
       const n = Array.from(state.worksTags).filter(tag => tags.has(tag)).length;
       return `${d.title || d.work_id} (${n}/${state.worksTags.size})`;
     })
-    .on("click", (event, d) => showWorkInspector(d));
+    .on("click", (event, d) => openWorkCard(d.work_id));
 }
 
 function showWorkInspector(work) {
@@ -875,30 +875,35 @@ if (graph.mode === "comparison") {
   .attr("class", "node")
   .call(drag(simulation))
   .on("mouseenter", function (event, d) {
-    if (graph.mode === "works" && d.type === "work") d3.select(this).select("text").style("display", null);
-    if (d.type === "work") showWorkInspector(state.worksById.get(d.work_id));
-    else showNodeInspector(d);
+    // Work nodes: hover shows the title label only.
+    if (d.type === "work") {
+      d3.select(this).select("text").style("display", null);
+      return;
+    }
+    showNodeInspector(d);
     showNodeTooltip(event, d);
   })
   .on("click", function (event, d) {
-    if (d.type === "work") showWorkInspector(state.worksById.get(d.work_id));
-    else showNodeInspector(d);
+    event.stopPropagation();
+    // Wait briefly so a double-click (pin toggle) does not also count as a click.
+    clearTimeout(nodeClickTimer);
+    nodeClickTimer = setTimeout(() => {
+      if (d.type === "work") openWorkCard(d.work_id);
+      else showNodeInspector(d);
+    }, 230);
   })
   .on("mousemove", function (event, d) {
-    moveNodeTooltip(event);
+    if (d.type !== "work") moveNodeTooltip(event);
   })
   .on("mouseleave", function (event, d) {
-    if (graph.mode === "works" && d.type === "work") d3.select(this).select("text").style("display", "none");
+    if (d.type === "work") d3.select(this).select("text").style("display", "none");
     hideNodeTooltip();
   })
   .on("dblclick", function (event, d) {
     event.stopPropagation();
-
-    state.fixedPositions.delete(d.id);
-    d.fx = null;
-    d.fy = null;
-
-    updateNetwork();
+    clearTimeout(nodeClickTimer);
+    togglePin(d, d3.select(this));
+    simulation.alpha(0.3).restart();
   });
   
   node.append("circle")
@@ -921,16 +926,13 @@ if (graph.mode === "comparison") {
   
   node.append("text")
     .text((d) => d.label)
-    .style("display", (d) => graph.mode === "works" && d.type === "work" ? "none" : null)
+    .style("display", (d) => d.type === "work" ? "none" : null)
     .attr("x", (d) => (d.type === "work" ? 5 : nodeRadius(d)) + 6)
     .attr("y", 4)
     .attr("font-size", (d) => d.type === "work" ? "10px" : "12px")
     .attr("font-weight", (d) => (graph.mode === "works" ? state.worksTags.has(d.id) : state.compareTags.has(d.id)) ? 700 : 400)
   .attr("fill", (d) => state.compareTags.has(d.id) ? "#111111" : "#333333");
   
-  node.append("title")
-    .text((d) => `${d.label} / ${formatCategory(d.category)} / frequency: ${d.frequency}`);
-
   simulation.on("tick", () => {
     link
       .attr("x1", (d) => d.source.x)
@@ -1046,6 +1048,86 @@ function categoryColor(category) {
   return "#999999";
 }
 
+let nodeClickTimer = null;
+
+function togglePin(d, nodeSelection) {
+  if (state.fixedPositions.has(d.id)) {
+    state.fixedPositions.delete(d.id);
+    d.fx = null;
+    d.fy = null;
+  } else {
+    state.fixedPositions.set(d.id, { x: d.x, y: d.y });
+    d.fx = d.x;
+    d.fy = d.y;
+  }
+  const pinned = state.fixedPositions.has(d.id);
+  const emphasised = pinned || state.compareTags.has(d.id);
+  nodeSelection.select("circle")
+    .attr("stroke", emphasised ? "#111111" : "#ffffff")
+    .attr("stroke-width", emphasised ? 3 : 1.5);
+}
+
+// ---- Floating work cards (left side of the map) ----
+
+function escapeHtml(v) {
+  return String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function getWorkCardLayer() {
+  let layer = d3.select("#work-card-layer");
+  if (layer.empty()) {
+    layer = d3.select("#network-area").append("div").attr("id", "work-card-layer");
+  }
+  return layer;
+}
+
+function openWorkCard(workId) {
+  const work = state.worksById.get(workId);
+  if (!work) return;
+
+  const layer = getWorkCardLayer();
+  const existing = layer.select(`.work-card[data-work-id="${workId}"]`);
+  if (!existing.empty()) {
+    // Already open: move it to the top of the stack and flash it.
+    layer.node().prepend(existing.node());
+    existing.classed("flash", false);
+    void existing.node().offsetWidth;
+    existing.classed("flash", true);
+    return;
+  }
+
+  const tags = Array.from(state.tagsByWork.get(workId) || []);
+  const selected = state.worksTags;
+  const tagHtml = tags.map((tag) => {
+    const cat = state.metaByTag.get(tag)?.category || "unknown";
+    const hit = selected.has(tag) ? " is-selected" : "";
+    return `<span class="wc-tag${hit}" style="--tag-color:${categoryColor(cat)}">${escapeHtml(tag)}</span>`;
+  }).join("");
+  const synopsis = String(work.synopsis_summary || "").trim();
+
+  const card = document.createElement("article");
+  card.className = "work-card";
+  card.dataset.workId = workId;
+  card.innerHTML = `
+    <button type="button" class="wc-close" aria-label="Close">×</button>
+    <div class="wc-rank">#${escapeHtml(work.rank || "")} · ${escapeHtml(work.work_id)}</div>
+    <h3>${escapeHtml(work.title || work.work_id)}</h3>
+    <dl class="wc-meta">
+      <div><dt>Author</dt><dd>${escapeHtml(work.writer || "Unknown")}</dd></div>
+      <div><dt>Status</dt><dd>${escapeHtml(work.form_of_publishment || "—")}</dd></div>
+      <div><dt>Retrieved</dt><dd>${escapeHtml(work.retrieved_date || "—")}</dd></div>
+    </dl>
+    <h4>Hashtags (${tags.length})</h4>
+    <div class="wc-tags">${tagHtml || "<span class='small-note'>No hashtags</span>"}</div>
+    ${synopsis ? `<details class="wc-synopsis"><summary>Synopsis</summary><p>${escapeHtml(synopsis)}</p></details>` : ""}
+  `;
+  card.querySelector(".wc-close").addEventListener("click", (e) => {
+    e.stopPropagation();
+    card.remove();
+  });
+  layer.node().prepend(card);
+}
+
 function drag(simulation) {
   function dragstarted(event, d) {
     if (!event.active) simulation.alphaTarget(0.3).restart();
@@ -1062,15 +1144,16 @@ function drag(simulation) {
   function dragended(event, d) {
     if (!event.active) simulation.alphaTarget(0);
 
-    d.fx = event.x;
-    d.fy = event.y;
-
-    state.fixedPositions.set(d.id, {
-      x: event.x,
-      y: event.y
-    });
-
-    showNodeInspector(d);
+    // Dragging no longer pins. A node that is already pinned stays pinned
+    // at its new spot; anything else is released back to the layout.
+    if (state.fixedPositions.has(d.id)) {
+      d.fx = event.x;
+      d.fy = event.y;
+      state.fixedPositions.set(d.id, { x: event.x, y: event.y });
+    } else {
+      d.fx = null;
+      d.fy = null;
+    }
   }
 
   return d3.drag()
@@ -1138,7 +1221,7 @@ function showNodeInspector(node) {
         }
       </ol>
 
-      <p class="small-note">Drag to pin. Double-click to unpin.</p>
+      <p class="small-note">Double-click a node to pin or unpin it.</p>
     </div>
   `);
 }
