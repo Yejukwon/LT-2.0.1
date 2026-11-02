@@ -13,7 +13,9 @@ const state = {
   compareTags: new Set(),
   worksTags: new Set(),
   worksMatchMode: "all",
-  fixedPositions: new Map(),
+  // Pinned node positions, kept separately for each view mode so a pin made in
+  // Network does not distort the Compare or Works layouts (and vice versa).
+  pinsByMode: { full: new Map(), comparison: new Map(), works: new Map() },
   viewMode: "full",
   worksListVisible: true,
   currentGraph: null
@@ -185,14 +187,20 @@ function setupControls() {
   setupCompareControls();
 }
 
+function currentPins() {
+  return state.pinsByMode[state.viewMode] || state.pinsByMode.full;
+}
+
+function updatePinStatus() {
+  const n = currentPins().size;
+  d3.select("#pin-count").text(n ? `${n} pinned node${n > 1 ? "s" : ""}` : "No pinned nodes");
+  d3.select("#clear-all-pins").property("disabled", n === 0);
+}
+
 function setupPinControls() {
   d3.select("#clear-all-pins").on("click", function () {
-    state.fixedPositions.clear();
+    currentPins().clear();
     updateNetwork();
-
-    d3.select("#inspector").html(
-      "All pinned node positions have been cleared."
-    );
   });
 }
 
@@ -417,6 +425,8 @@ function updateNetwork() {
 
   state.currentGraph = graph;
   drawNetwork(graph);
+  updatePinStatus();
+  updateCompareFilterNote();
 
   renderWorksList();
   if (mode === "comparison") compareSelectedTags();
@@ -433,6 +443,21 @@ function updateNetwork() {
     : `<strong>${graph.nodes.length}</strong> tags · <strong>${graph.links.length}</strong> links`;
 
   d3.select("#data-status").html(`${counts}${hint ? "<br>" + hint : ""}`);
+}
+
+// Filters live in the Network tab; tell Compare users when some are active.
+function updateCompareFilterNote() {
+  const note = d3.select("#compare-filter-note");
+  if (note.empty()) return;
+  const allCats = new Set(state.metadata.map((d) => d.category));
+  const parts = [];
+  const offCats = Array.from(allCats).filter((c) => !state.selectedCategories.has(c));
+  if (offCats.length) parts.push(`${offCats.length} categor${offCats.length > 1 ? "ies" : "y"} off`);
+  if (state.minFrequency > 1) parts.push(`min frequency ${state.minFrequency}`);
+  if (state.minWeight > 1) parts.push(`min edge weight ${state.minWeight}`);
+  if (state.excludedTags.size) parts.push(`${state.excludedTags.size} hidden tag${state.excludedTags.size > 1 ? "s" : ""}`);
+  note.classed("hidden", !parts.length)
+    .text(parts.length ? `Network filters also apply here: ${parts.join(", ")}.` : "");
 }
 
 // ---- Mode switch: Network / Compare / Works ----
@@ -818,8 +843,8 @@ function drawNetwork(graph) {
  const nodes = graph.nodes.map((d) => {
   const node = { ...d };
 
-  if (graph.mode !== "comparison") {
-    const fixed = state.fixedPositions.get(d.id);
+  {
+    const fixed = currentPins().get(d.id);
 
     if (fixed) {
       node.x = fixed.x;
@@ -853,27 +878,33 @@ function drawNetwork(graph) {
       const t = comparisonTarget(n, compareLayout, graph.compareTags.length);
       n.tx = t.x;
       n.ty = t.y;
-      // Start each node near its region so the layout settles quickly.
-      n.x = t.x + (Math.random() - 0.5) * 40;
-      n.y = t.y + (Math.random() - 0.5) * 40;
+      // Start each node near its region so the layout settles quickly
+      // (pinned nodes stay where they were pinned).
+      if (n.fx == null) {
+        n.x = t.x + (Math.random() - 0.5) * 40;
+        n.y = t.y + (Math.random() - 0.5) * 40;
+      }
     }
   }
 
   const isCompare = graph.mode === "comparison";
 
   const simulation = d3.forceSimulation(nodes)
-  .force("link", d3.forceLink(links).id((d) => d.id)
-    .distance((d) => {
+  .force("link", (() => {
+    const force = d3.forceLink(links).id((d) => d.id).distance(() => {
       if (graph.mode === "works") return 145;
       if (isCompare) return 180;
-      return 90;
-    })
+      return 150;
+    });
     // In comparison mode the grouping forces decide placement, not the links.
-    .strength(isCompare ? 0.004 : null))
+    // (Elsewhere keep d3's default strength; passing null would switch it off.)
+    if (isCompare) force.strength(0.004);
+    return force;
+  })())
   .force("charge", d3.forceManyBody().strength((d) => {
     if (graph.mode === "works") return d.type === "work" ? -75 : -450;
     if (isCompare) return -35;
-    return -170;
+    return -380;
   }))
   .force("collision", d3.forceCollide().radius((d) => nodeRadius(d) + (isCompare ? 4 : 10)));
 
@@ -883,7 +914,10 @@ function drawNetwork(graph) {
       .force("y", d3.forceY((d) => d.ty).strength((d) => (d.comparisonGroup === "anchor" ? 1 : 0.22)));
   } else {
     simulation
-      .force("center", d3.forceCenter(width / 2, height / 2));
+      .force("center", d3.forceCenter(width / 2, height / 2))
+      // Gentle pull toward the middle keeps the spread-out layout on screen.
+      .force("x", d3.forceX(width / 2).strength(graph.mode === "works" ? 0 : 0.06))
+      .force("y", d3.forceY(height / 2).strength(graph.mode === "works" ? 0 : 0.08));
   }
 
   const link = graphLayer.append("g")
@@ -973,28 +1007,29 @@ function drawNetwork(graph) {
   
   node.append("circle")
     .attr("r", (d) => {
-      if (d.type === "work") return 5;
+      if (d.type === "work") return 6.5;
       if (isCompareAnchor(d.id)) return nodeRadius(d) + 4;
       return nodeRadius(d);
     })
     .attr("fill", (d) => nodeColor(d))
     .attr("stroke", (d) => {
       if (isCompareAnchor(d.id)) return "#111111";
-      if (state.fixedPositions.has(d.id)) return "#111111";
+      if (currentPins().has(d.id)) return "#111111";
       return "#ffffff";
     })
     .attr("stroke-width", (d) => {
       if (isCompareAnchor(d.id)) return 3;
-      if (state.fixedPositions.has(d.id)) return 3;
+      if (currentPins().has(d.id)) return 3;
       return 1.5;
     });
   
   node.append("text")
     .text((d) => d.label)
     .style("display", (d) => d.type === "work" ? "none" : null)
-    .attr("x", (d) => (d.type === "work" ? 5 : nodeRadius(d)) + 6)
+    .attr("class", "node-label")
+    .attr("x", (d) => (d.type === "work" ? 6.5 : nodeRadius(d)) + 5)
     .attr("y", 4)
-    .attr("font-size", (d) => d.type === "work" ? "10px" : "12px")
+    .attr("font-size", (d) => d.type === "work" ? "12px" : "13.5px")
     .attr("font-weight", (d) => (graph.mode === "works" ? state.worksTags.has(d.id) : isCompareAnchor(d.id)) ? 700 : 400)
     .attr("fill", (d) => isCompareAnchor(d.id) ? "#111111" : "#333333");
   
@@ -1107,7 +1142,7 @@ function isCompareAnchor(id) {
 }
 
 function nodeRadius(d) {
-  return 4 + Math.sqrt(d.frequency || 1) * 2;
+  return 6 + Math.sqrt(d.frequency || 1) * 2.6;
 }
 
 function nodeColor(d) {
@@ -1145,16 +1180,17 @@ function categoryColor(category) {
 let nodeClickTimer = null;
 
 function togglePin(d, nodeSelection) {
-  if (state.fixedPositions.has(d.id)) {
-    state.fixedPositions.delete(d.id);
+  if (currentPins().has(d.id)) {
+    currentPins().delete(d.id);
     d.fx = null;
     d.fy = null;
   } else {
-    state.fixedPositions.set(d.id, { x: d.x, y: d.y });
+    currentPins().set(d.id, { x: d.x, y: d.y });
     d.fx = d.x;
     d.fy = d.y;
   }
-  const pinned = state.fixedPositions.has(d.id);
+  updatePinStatus();
+  const pinned = currentPins().has(d.id);
   const emphasised = pinned || isCompareAnchor(d.id);
   nodeSelection.select("circle")
     .attr("stroke", emphasised ? "#111111" : "#ffffff")
@@ -1240,10 +1276,10 @@ function drag(simulation) {
 
     // Dragging no longer pins. A node that is already pinned stays pinned
     // at its new spot; anything else is released back to the layout.
-    if (state.fixedPositions.has(d.id)) {
+    if (currentPins().has(d.id)) {
       d.fx = event.x;
       d.fy = event.y;
-      state.fixedPositions.set(d.id, { x: event.x, y: event.y });
+      currentPins().set(d.id, { x: event.x, y: event.y });
     } else {
       d.fx = null;
       d.fy = null;
@@ -1285,7 +1321,7 @@ function showNodeInspector(node) {
       <div class="inspector-meta">
         <div><strong>Category</strong><br>${formatCategory(node.category)}</div>
         <div><strong>Frequency</strong><br>${node.frequency}</div>
-        <div><strong>Pinned</strong><br>${state.fixedPositions.has(node.id) ? "Yes" : "No"}</div>
+        <div><strong>Pinned</strong><br>${currentPins().has(node.id) ? "Yes" : "No"}</div>
       </div>
 
       ${

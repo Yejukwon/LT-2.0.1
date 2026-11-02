@@ -1367,3 +1367,21 @@ body[data-lang="en"] .lang-en {
 
 /* Region labels on the map in comparison mode */
 .compare-region-label { font-size: 11px; font-weight: 700; pointer-events: none; paint-order: stroke; stroke: #f3f0ee; stroke-width: 4px; }
+
+/* Readable node labels: soft halo so text stays legible over links */
+.node-label {
+  font-weight: 500;
+  paint-order: stroke;
+  stroke: #f3f0ee;
+  stroke-width: 3.5px;
+  stroke-linejoin: round;
+}
+
+/* Pin bar (all modes) */
+.pin-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; font-size: 12px; color: #666; }
+.pin-bar-text { line-height: 1.4; }
+#pin-count { font-weight: 600; color: #333; }
+.pin-bar button { width: auto; flex: 0 0 auto; padding: 5px 10px; font-size: 12px; font-weight: 500; }
+.pin-bar button:disabled { opacity: 0.45; cursor: default; }
+.filter-note { margin: -4px 0 10px; padding: 6px 8px; background: #f5f0ec; border-radius: 6px; }
+.filter-note.hidden { display: none; }
