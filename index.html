@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Romance Fantasy Hashtag Network</title>
-  <link rel="stylesheet" href="css/style.css?v=6">
+  <link rel="stylesheet" href="css/style.css?v=7">
 </head>
 
 <body>
@@ -32,11 +32,16 @@
         </div>
         <p id="mode-help" class="small-note mode-help"></p>
         <p id="data-status" class="data-status">Loading data...</p>
+        <div class="pin-bar">
+          <span class="pin-bar-text"><span id="pin-count">No pinned nodes</span> · double-click a node to pin / unpin</span>
+          <button id="clear-all-pins" type="button">Unpin all</button>
+        </div>
       </section>
 
       <!-- Compare mode -->
       <section class="panel-section" data-modes="comparison">
         <h2>Compare Tags</h2>
+        <p id="compare-filter-note" class="small-note filter-note hidden"></p>
 
         <label>
           Category
@@ -84,7 +89,7 @@
       </section>
 
       <!-- Network + Compare: shared filters -->
-      <details class="panel-section panel-collapsible" data-modes="full comparison" open>
+      <details class="panel-section panel-collapsible" data-modes="full" open>
         <summary><h2>Filters</h2></summary>
 
         <h3>Category</h3>
@@ -119,11 +124,6 @@
           <button id="clear-hidden-tags" type="button" class="secondary-button">Show all hidden tags</button>
         </div>
 
-        <div class="filter-block">
-          <h3>Pinned Nodes</h3>
-          <p class="small-note">Double-click a node to pin or unpin it.</p>
-          <button id="clear-all-pins" type="button" class="secondary-button">Unpin all nodes</button>
-        </div>
       </details>
 
       <section class="panel-section">
@@ -202,6 +202,6 @@
 </div>
   
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-  <script src="js/app.js?v=6"></script>
+  <script src="js/app.js?v=7"></script>
 </body>
 </html>
