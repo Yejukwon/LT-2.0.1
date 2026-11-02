@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Romance Fantasy Hashtag Network</title>
-  <link rel="stylesheet" href="css/style.css?v=5">
+  <link rel="stylesheet" href="css/style.css?v=6">
 </head>
 
 <body>
@@ -24,20 +24,68 @@
     </section>
 
     <aside id="control-panel">
-      <section class="panel-section">
-        <h2>Dataset Overview</h2>
-        <div id="data-overview">
-          Loading summary...
+      <section class="panel-section mode-section">
+        <div id="mode-switch" class="mode-switch" role="group" aria-label="View mode">
+          <button type="button" data-mode="full">Network</button>
+          <button type="button" data-mode="comparison">Compare</button>
+          <button type="button" data-mode="works">Works</button>
         </div>
-      </section>
-      
-      <section class="panel-section">
-        <h2>Data Status</h2>
-        <p id="data-status">Loading data...</p>
+        <p id="mode-help" class="small-note mode-help"></p>
+        <p id="data-status" class="data-status">Loading data...</p>
       </section>
 
-      <section class="panel-section">
-        <h2>Filters</h2>
+      <!-- Compare mode -->
+      <section class="panel-section" data-modes="comparison">
+        <h2>Compare Tags</h2>
+
+        <label>
+          Category
+          <select id="compare-category"></select>
+        </label>
+
+        <label>Tag</label>
+        <div class="works-add-row">
+          <select id="compare-tag"></select>
+          <button id="add-compare-tag" type="button">+ Add tag</button>
+        </div>
+
+        <div id="selected-compare-tags" class="tag-chip-area">
+          No comparison tags selected.
+        </div>
+        <button id="clear-compare-tags" type="button" class="secondary-button">Clear comparison</button>
+
+        <div id="compare-results">
+          Add two or more tags to compare their co-occurrence patterns.
+        </div>
+      </section>
+
+      <!-- Works mode -->
+      <section class="panel-section" id="works-panel" data-modes="works">
+        <div class="works-panel-heading">
+          <h2>Matching Works</h2>
+          <button id="toggle-works-list" type="button">Hide list</button>
+        </div>
+        <label for="works-category">Category</label>
+        <select id="works-category"></select>
+        <label for="works-tag">Tag</label>
+        <div class="works-add-row">
+          <select id="works-tag"></select>
+          <button id="add-works-tag" type="button">+ Add tag</button>
+        </div>
+        <div id="selected-works-tags" class="tag-chip-area">No tags selected.</div>
+        <div class="works-match-mode" role="group" aria-label="Match condition">
+          <label><input type="radio" name="works-match" value="all" checked> AND · ALL tags</label>
+          <label><input type="radio" name="works-match" value="any"> OR · ANY tag</label>
+        </div>
+        <p id="works-mode-help" class="small-note" aria-live="polite"></p>
+        <p id="works-count" class="small-note" aria-live="polite"></p>
+        <div id="works-breakdown" class="works-breakdown"></div>
+        <div id="works-list">Add a tag to see matching works.</div>
+      </section>
+
+      <!-- Network + Compare: shared filters -->
+      <details class="panel-section panel-collapsible" data-modes="full comparison" open>
+        <summary><h2>Filters</h2></summary>
 
         <h3>Category</h3>
         <div id="category-filters"></div>
@@ -56,91 +104,41 @@
 
         <div class="filter-block">
           <h3>Hide Tags</h3>
-          <p class="small-note">Select one or more tags to hide from the network.</p>
-
-            <label>
-              Category
-              <select id="hide-category"></select>
-            </label>
-
-            <label>
-              Tag
-              <select id="hide-tag"></select>
-            </label>
-
-            <button id="add-hidden-tag">+ Hide tag</button>
-            <button id="clear-hidden-tags">Clear hidden tags</button>
-
-            <div id="hidden-tag-chips" class="tag-chip-area">
-              No hidden tags selected.
-            </div>
+          <label>
+            Category
+            <select id="hide-category"></select>
+          </label>
+          <label>Tag</label>
+          <div class="works-add-row">
+            <select id="hide-tag"></select>
+            <button id="add-hidden-tag" type="button">+ Hide</button>
           </div>
+          <div id="hidden-tag-chips" class="tag-chip-area">
+            No hidden tags selected.
+          </div>
+          <button id="clear-hidden-tags" type="button" class="secondary-button">Show all hidden tags</button>
+        </div>
+
         <div class="filter-block">
-          
-        <h3>Pin Controls</h3>
-          <button id="clear-all-pins">Clear all pinned nodes</button>
+          <h3>Pinned Nodes</h3>
+          <p class="small-note">Double-click a node to pin or unpin it.</p>
+          <button id="clear-all-pins" type="button" class="secondary-button">Unpin all nodes</button>
         </div>
-        
-      </section>
-
-      <section class="panel-section">
-        <h2>Compare Tags</h2>
-
-        <label>
-          Category
-          <select id="compare-category"></select>
-        </label>
-
-        <label>
-          Tag
-          <select id="compare-tag"></select>
-        </label>
-
-        <button id="add-compare-tag">+ Add tag</button>
-        <button id="show-comparison-layout">Show comparison layout</button>
-        <button id="clear-compare-tags">Clear comparison</button>
-        
-        <div id="selected-compare-tags" class="tag-chip-area">
-          No comparison tags selected.
-        </div>
-
-        <div id="compare-results">
-          Add two or more tags to compare their co-occurrence patterns.
-       </div>
-      </section>
-
-      <section class="panel-section" id="works-panel">
-        <div class="works-panel-heading">
-          <h2>Matching Works</h2>
-          <button id="toggle-works-list" type="button">Hide list</button>
-        </div>
-        <p class="small-note">Select tags here independently of Compare Tags. Results update automatically. (v5)</p>
-        <label for="works-category">Category</label>
-        <select id="works-category"></select>
-        <label for="works-tag">Tag</label>
-        <div class="works-add-row">
-          <select id="works-tag"></select>
-          <button id="add-works-tag" type="button">+ Add tag</button>
-        </div>
-        <div id="selected-works-tags" class="tag-chip-area">No tags selected.</div>
-        <div class="works-match-mode" role="group" aria-label="Match condition">
-          <label><input type="radio" name="works-match" value="all" checked> AND · ALL tags</label>
-          <label><input type="radio" name="works-match" value="any"> OR · ANY tag</label>
-        </div>
-        <p id="works-mode-help" class="small-note" aria-live="polite"></p>
-        <p id="works-count" class="small-note" aria-live="polite"></p>
-        <div id="works-breakdown" class="works-breakdown"></div>
-        <div id="works-list">Add a tag to see matching works.</div>
-        <button id="back-full-network" type="button">Back to full network</button>
-      </section>
+      </details>
 
       <section class="panel-section">
         <h2>Inspector</h2>
         <div id="inspector">
-          Click a node or edge to inspect it.
+          Click a hashtag node or edge to inspect it.
         </div>
       </section>
-      
+
+      <details class="panel-section panel-collapsible">
+        <summary><h2>Dataset Overview</h2></summary>
+        <div id="data-overview">
+          Loading summary...
+        </div>
+      </details>
     </aside>
   </main>
   
@@ -171,7 +169,7 @@
       <div>
         <h3>Pin nodes</h3>
         <p>
-          Drag a node to fix it in place. Double-click a node to unpin it. Use Clear all pinned
+          Drag a node to move it. Double-click a node to pin or unpin it. Click a work node to open its info card. Use Clear all pinned
           nodes to reset the layout.
         </p>
       </div>
@@ -179,8 +177,8 @@
       <div>
         <h3>Compare tags</h3>
         <p>
-          Add two or more hashtags in Compare Tags, then use Show comparison layout to see which
-          tags connect to each selected term.
+          Switch to Compare and add two or more hashtags. The comparison layout appears
+          automatically and shows which tags connect to each selected term.
         </p>
       </div>
 
@@ -204,6 +202,6 @@
 </div>
   
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-  <script src="js/app.js?v=5"></script>
+  <script src="js/app.js?v=6"></script>
 </body>
 </html>
