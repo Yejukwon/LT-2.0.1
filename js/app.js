@@ -47,6 +47,7 @@ Promise.all([
     setupWorksControls();
     setupControls();
     setupHelpModal();
+    setupModeSwitch();
     updateNetwork();
   })
   .catch((error) => {
@@ -333,37 +334,19 @@ function setupCompareControls() {
   d3.select("#add-compare-tag").on("click", function () {
     const tag = tagSelect.property("value");
 
-    if (!tag) return;
+    if (!tag || state.compareTags.has(tag)) return;
 
     state.compareTags.add(tag);
     renderCompareChips();
+    updateCompareTagDropdown();
     updateNetwork();
-    compareSelectedTags();
-  });
-
-  d3.select("#show-comparison-layout").on("click", function () {
-    if (state.compareTags.size < 2) {
-      d3.select("#compare-results").html(
-        "Add at least two tags to use comparison layout."
-      );
-      return;
-    }
-
-    state.viewMode = "comparison";
-    updateNetwork();
-    compareSelectedTags();
   });
 
   d3.select("#clear-compare-tags").on("click", function () {
     state.compareTags.clear();
-    state.viewMode = "full";
-
     renderCompareChips();
+    updateCompareTagDropdown();
     updateNetwork();
-
-    d3.select("#compare-results").html(
-      "Add two or more tags to compare their co-occurrence patterns."
-    );
   });
 
   updateCompareTagDropdown();
@@ -376,9 +359,9 @@ function updateCompareTagDropdown() {
   const tags = Array.from(state.frequencyByTag.keys())
     .filter((tag) => {
       const meta = state.metaByTag.get(tag);
-      return meta && meta.category === selectedCategory;
+      return meta && meta.category === selectedCategory && !state.compareTags.has(tag);
     })
-    .sort();
+    .sort((a, b) => a.localeCompare(b, "ko"));
 
   const tagSelect = d3.select("#compare-tag");
 
@@ -419,30 +402,65 @@ function renderCompareChips() {
 
       state.compareTags.delete(tag);
       renderCompareChips();
+      updateCompareTagDropdown();
       updateNetwork();
-      compareSelectedTags();
     });
 }
 
 function updateNetwork() {
-  const graph = state.viewMode === "works" && state.worksTags.size
+  const mode = state.viewMode;
+  const graph = mode === "works" && state.worksTags.size
     ? buildWorksGraph()
-    : state.viewMode === "comparison" && state.compareTags.size >= 2
+    : mode === "comparison" && state.compareTags.size >= 2
       ? buildComparisonGraph()
       : buildGraph();
 
   state.currentGraph = graph;
   drawNetwork(graph);
 
-  const modeLabel = graph.mode === "works" ? "Matching works" : graph.mode === "comparison" ? "Comparison layout" : "Full network";
   renderWorksList();
+  if (mode === "comparison") compareSelectedTags();
 
-  d3.select("#data-status").html(`
-    <strong>${modeLabel}</strong><br>
-    <strong>${graph.mode === "works" ? graph.nodes.filter(d => d.type === "work").length + " matching works" : graph.nodes.length + " visible tags"}</strong><br>
-    <strong>${graph.links.length}</strong> visible links<br>
-    <span class="small-note">Data source: works.csv, work_tags.csv, tag_metadata.csv</span>
-  `);
+  let hint = "";
+  if (mode === "comparison" && state.compareTags.size < 2) {
+    hint = `<span class="status-hint">Add ${2 - state.compareTags.size} more tag(s) to see the comparison layout.</span>`;
+  } else if (mode === "works" && !state.worksTags.size) {
+    hint = `<span class="status-hint">Add a tag to see matching works.</span>`;
+  }
+
+  const counts = graph.mode === "works"
+    ? `<strong>${graph.nodes.filter((d) => d.type === "work").length}</strong> works · <strong>${graph.links.length}</strong> links`
+    : `<strong>${graph.nodes.length}</strong> tags · <strong>${graph.links.length}</strong> links`;
+
+  d3.select("#data-status").html(`${counts}${hint ? "<br>" + hint : ""}`);
+}
+
+// ---- Mode switch: Network / Compare / Works ----
+// Each mode keeps its own selections; switching only changes what is shown.
+const MODE_HELP = {
+  full: "Explore the whole hashtag network. Use the filters to hide tags or thin out weak links.",
+  comparison: "Pick two or more hashtags to see which tags sit near each one, and which they share.",
+  works: "Pick hashtags to list and map the works that carry them."
+};
+
+function setupModeSwitch() {
+  d3.selectAll("#mode-switch button").on("click", function () {
+    setViewMode(this.dataset.mode);
+  });
+  setViewMode(state.viewMode, true);
+}
+
+function setViewMode(mode, initial = false) {
+  state.viewMode = mode;
+  d3.selectAll("#mode-switch button")
+    .classed("active", function () { return this.dataset.mode === mode; })
+    .attr("aria-pressed", function () { return this.dataset.mode === mode ? "true" : "false"; });
+  d3.selectAll("[data-modes]").classed("mode-hidden", function () {
+    return !this.dataset.modes.split(" ").includes(mode);
+  });
+  d3.select("#mode-help").text(MODE_HELP[mode] || "");
+  hideNodeTooltip();
+  if (!initial) updateNetwork();
 }
 
 
@@ -512,7 +530,6 @@ function setupWorksControls() {
     const tag = d3.select("#works-tag").property("value");
     if (!tag || state.worksTags.has(tag)) return;
     state.worksTags.add(tag);
-    state.viewMode = "works";
     renderWorksChips();
     updateWorksTagDropdown();
     updateNetwork();
@@ -520,17 +537,12 @@ function setupWorksControls() {
   d3.selectAll('input[name="works-match"]').on("change", function() {
     if (!this.checked) return;
     state.worksMatchMode = this.value;
-    if (state.worksTags.size) state.viewMode = "works";
     updateNetwork();
   });
   d3.select("#toggle-works-list").on("click", () => {
     state.worksListVisible = !state.worksListVisible;
     d3.select("#works-list").classed("hidden", !state.worksListVisible);
     d3.select("#toggle-works-list").text(state.worksListVisible ? "Hide list" : "Show list");
-  });
-  d3.select("#back-full-network").on("click", () => {
-    state.viewMode = "full";
-    updateNetwork();
   });
   updateWorksTagDropdown();
   renderWorksChips();
@@ -566,8 +578,6 @@ function renderWorksChips() {
   chips.append("button").attr("type", "button").attr("aria-label", d => `Remove ${d}`)
     .text("×").on("click", (event, tag) => {
       state.worksTags.delete(tag);
-      if (!state.worksTags.size) state.viewMode = "full";
-      else state.viewMode = "works";
       renderWorksChips();
       updateWorksTagDropdown();
       updateNetwork();
@@ -909,17 +919,17 @@ if (graph.mode === "comparison") {
   node.append("circle")
     .attr("r", (d) => {
       if (d.type === "work") return 5;
-      if (state.compareTags.has(d.id)) return nodeRadius(d) + 4;
+      if (isCompareAnchor(d.id)) return nodeRadius(d) + 4;
       return nodeRadius(d);
     })
     .attr("fill", (d) => nodeColor(d))
     .attr("stroke", (d) => {
-      if (state.compareTags.has(d.id)) return "#111111";
+      if (isCompareAnchor(d.id)) return "#111111";
       if (state.fixedPositions.has(d.id)) return "#111111";
       return "#ffffff";
     })
     .attr("stroke-width", (d) => {
-      if (state.compareTags.has(d.id)) return 3;
+      if (isCompareAnchor(d.id)) return 3;
       if (state.fixedPositions.has(d.id)) return 3;
       return 1.5;
     });
@@ -930,8 +940,8 @@ if (graph.mode === "comparison") {
     .attr("x", (d) => (d.type === "work" ? 5 : nodeRadius(d)) + 6)
     .attr("y", 4)
     .attr("font-size", (d) => d.type === "work" ? "10px" : "12px")
-    .attr("font-weight", (d) => (graph.mode === "works" ? state.worksTags.has(d.id) : state.compareTags.has(d.id)) ? 700 : 400)
-  .attr("fill", (d) => state.compareTags.has(d.id) ? "#111111" : "#333333");
+    .attr("font-weight", (d) => (graph.mode === "works" ? state.worksTags.has(d.id) : isCompareAnchor(d.id)) ? 700 : 400)
+    .attr("fill", (d) => isCompareAnchor(d.id) ? "#111111" : "#333333");
   
   simulation.on("tick", () => {
     link
@@ -999,6 +1009,10 @@ function comparisonY(d, height) {
   return height * 0.50;
 }
 
+function isCompareAnchor(id) {
+  return state.viewMode === "comparison" && state.compareTags.has(id);
+}
+
 function nodeRadius(d) {
   return 4 + Math.sqrt(d.frequency || 1) * 2;
 }
@@ -1029,7 +1043,7 @@ function nodeColor(d) {
     return "#d0d0d0";
   }
 
-  if (state.compareTags.size > 0) {
+  if (state.viewMode === "comparison" && state.compareTags.size > 0) {
     if (state.compareTags.has(d.id)) {
       return "#111111";
     }
@@ -1061,7 +1075,7 @@ function togglePin(d, nodeSelection) {
     d.fy = d.y;
   }
   const pinned = state.fixedPositions.has(d.id);
-  const emphasised = pinned || state.compareTags.has(d.id);
+  const emphasised = pinned || isCompareAnchor(d.id);
   nodeSelection.select("circle")
     .attr("stroke", emphasised ? "#111111" : "#ffffff")
     .attr("stroke-width", emphasised ? 3 : 1.5);

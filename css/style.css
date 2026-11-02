@@ -1319,3 +1319,33 @@ body[data-lang="en"] .lang-en {
 .wc-synopsis { margin-top: 10px; }
 .wc-synopsis summary { cursor: pointer; font-size: 11px; color: #666; }
 .wc-synopsis p { margin: 6px 0 0; max-height: 160px; overflow-y: auto; white-space: pre-line; line-height: 1.55; }
+
+/* ---- Mode switch (Network / Compare / Works) ---- */
+.mode-section { position: sticky; top: -18px; z-index: 5; background: #fff; margin-top: -18px; padding-top: 18px; }
+.mode-switch {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  padding: 3px; gap: 3px; border-radius: 9px; background: #ebe6e3;
+}
+.mode-switch button {
+  width: auto; border: none; border-radius: 7px; background: transparent;
+  padding: 8px 6px; font-size: 13px; font-weight: 600; color: #6b625e;
+}
+.mode-switch button:hover { background: rgba(255, 255, 255, 0.55); }
+.mode-switch button.active {
+  background: #fff; color: #1f1b19; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+.mode-help { margin: 10px 0 6px; line-height: 1.5; }
+.data-status { margin: 0; font-size: 13px; color: #444; }
+.status-hint { color: #8c5a4a; font-size: 12px; }
+.mode-hidden { display: none !important; }
+
+/* Collapsible panel sections */
+.panel-collapsible > summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; }
+.panel-collapsible > summary::-webkit-details-marker { display: none; }
+.panel-collapsible > summary h2 { margin: 0; }
+.panel-collapsible > summary::after { content: "▾"; color: #888; font-size: 13px; transition: transform 0.15s; }
+.panel-collapsible:not([open]) > summary::after { transform: rotate(-90deg); }
+.panel-collapsible[open] > summary { margin-bottom: 12px; }
+
+.secondary-button { margin-top: 8px; font-weight: 500; background: transparent; }
+#compare-results { margin-top: 14px; }
