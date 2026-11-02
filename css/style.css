@@ -1349,3 +1349,21 @@ body[data-lang="en"] .lang-en {
 
 .secondary-button { margin-top: 8px; font-weight: 500; background: transparent; }
 #compare-results { margin-top: 14px; }
+
+/* ---- Compare results: intersection / partial / difference ---- */
+.cmp-anchors { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-bottom: 4px; font-weight: 600; font-size: 13px; }
+.cmp-anchor { display: inline-flex; align-items: center; gap: 5px; }
+.cmp-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: 0 0 10px; }
+.cmp-heading { margin: 16px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #888; }
+#compare-results .compare-group { margin-top: 6px; }
+#compare-results .compare-group > summary {
+  display: flex; align-items: center; gap: 7px; cursor: pointer; list-style: none;
+  padding: 5px 2px; font-size: 13px; font-weight: 600;
+}
+#compare-results .compare-group > summary::-webkit-details-marker { display: none; }
+#compare-results .compare-group > summary span:nth-child(2) { flex: 1; }
+.cmp-count { font-weight: 500; font-size: 12px; color: #777; background: #f1edea; border-radius: 9px; padding: 1px 7px; }
+#compare-results .compare-group ul { margin: 2px 0 6px; padding-left: 22px; font-size: 13px; line-height: 1.6; }
+
+/* Region labels on the map in comparison mode */
+.compare-region-label { font-size: 11px; font-weight: 700; pointer-events: none; paint-order: stroke; stroke: #f3f0ee; stroke-width: 4px; }

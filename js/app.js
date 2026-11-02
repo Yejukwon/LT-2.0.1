@@ -761,19 +761,28 @@ function buildComparisonGraph() {
       const connectedTo = weights.filter((d) => d.weight > 0);
       const totalWeight = d3.sum(weights, (d) => d.weight);
 
-      let comparisonGroup = "target";
+      // Group by the exact combination of compare tags this tag co-occurs with:
+      //   all  = linked to every compare tag (intersection)
+      //   some = linked to more than one but not all (partial intersection)
+      //   only = linked to exactly one (difference)
+      const subset = connectedTo.map((d) => d.selected);
+      let comparisonGroup;
 
       if (state.compareTags.has(tag)) {
         comparisonGroup = "anchor";
-      } else if (connectedTo.length === 1) {
-        comparisonGroup = "only_" + connectedTo[0].selected;
-      } else if (connectedTo.length > 1) {
-        comparisonGroup = "shared";
+      } else if (subset.length === selectedTags.length) {
+        comparisonGroup = "all";
+      } else if (subset.length === 1) {
+        comparisonGroup = "only";
+      } else {
+        comparisonGroup = "some";
       }
 
       return {
         ...baseNode,
         comparisonGroup,
+        comparisonSubset: state.compareTags.has(tag) ? [tag] : subset,
+        comparisonKey: state.compareTags.has(tag) ? "anchor:" + tag : subset.join("|||"),
         comparisonWeights: weights,
         comparisonTotalWeight: totalWeight,
         connectedCompareTags: connectedTo.map((d) => d.selected)
@@ -836,27 +845,46 @@ function drawNetwork(graph) {
     });
 }
 
+  let compareLayout = null;
+
+  if (graph.mode === "comparison") {
+    compareLayout = compareAnchorPositions(graph.compareTags, width, height);
+    for (const n of nodes) {
+      const t = comparisonTarget(n, compareLayout, graph.compareTags.length);
+      n.tx = t.x;
+      n.ty = t.y;
+      // Start each node near its region so the layout settles quickly.
+      n.x = t.x + (Math.random() - 0.5) * 40;
+      n.y = t.y + (Math.random() - 0.5) * 40;
+    }
+  }
+
+  const isCompare = graph.mode === "comparison";
+
   const simulation = d3.forceSimulation(nodes)
-  .force("link", d3.forceLink(links).id((d) => d.id).distance((d) => {
-    if (graph.mode === "works") return 145;
-    if (graph.mode === "comparison") return 180;
-    return 90;
-  }))
+  .force("link", d3.forceLink(links).id((d) => d.id)
+    .distance((d) => {
+      if (graph.mode === "works") return 145;
+      if (isCompare) return 180;
+      return 90;
+    })
+    // In comparison mode the grouping forces decide placement, not the links.
+    .strength(isCompare ? 0.004 : null))
   .force("charge", d3.forceManyBody().strength((d) => {
     if (graph.mode === "works") return d.type === "work" ? -75 : -450;
-    if (graph.mode === "comparison") return -260;
+    if (isCompare) return -35;
     return -170;
   }))
-  .force("collision", d3.forceCollide().radius((d) => nodeRadius(d) + 10));
+  .force("collision", d3.forceCollide().radius((d) => nodeRadius(d) + (isCompare ? 4 : 10)));
 
-if (graph.mode === "comparison") {
-  simulation
-    .force("x", d3.forceX((d) => comparisonX(d, width)).strength(1.0))
-    .force("y", d3.forceY((d) => comparisonY(d, height)).strength(0.12));
-} else {
-  simulation
-    .force("center", d3.forceCenter(width / 2, height / 2));
-}
+  if (isCompare) {
+    simulation
+      .force("x", d3.forceX((d) => d.tx).strength((d) => (d.comparisonGroup === "anchor" ? 1 : 0.22)))
+      .force("y", d3.forceY((d) => d.ty).strength((d) => (d.comparisonGroup === "anchor" ? 1 : 0.22)));
+  } else {
+    simulation
+      .force("center", d3.forceCenter(width / 2, height / 2));
+  }
 
   const link = graphLayer.append("g")
     .attr("class", "links")
@@ -864,8 +892,16 @@ if (graph.mode === "comparison") {
     .data(links)
     .join("line")
     .attr("class", "link")
-    .attr("stroke", graph.mode === "works" ? "#9c9692" : "#999")
-    .attr("stroke-opacity", graph.mode === "comparison" ? 0.35 : 0.45)
+    .attr("stroke", (d) => {
+      if (graph.mode === "works") return "#9c9692";
+      if (isCompare) {
+        const s = getLinkName(d.source);
+        const t = getLinkName(d.target);
+        return compareColor(state.compareTags.has(s) ? s : t);
+      }
+      return "#999";
+    })
+    .attr("stroke-opacity", isCompare ? 0.18 : 0.45)
     .attr("stroke-width", (d) => {
       if (graph.mode === "works") return 1.2;
       if (graph.mode === "comparison") return 1 + Math.sqrt(d.weight);
@@ -876,6 +912,25 @@ if (graph.mode === "comparison") {
       if (graph.mode === "works") return;
       showEdgeInspector(d);
     });
+
+  let regionLabels = null;
+
+  if (isCompare) {
+    const total = graph.compareTags.length;
+    const groups = d3.groups(
+      nodes.filter((n) => n.comparisonGroup !== "anchor"),
+      (n) => n.comparisonKey
+    );
+    regionLabels = graphLayer.append("g")
+      .attr("class", "compare-region-labels")
+      .selectAll("text")
+      .data(groups)
+      .join("text")
+      .attr("class", "compare-region-label")
+      .attr("text-anchor", "middle")
+      .attr("fill", ([, members]) => d3.color(compareSubsetColor(members[0].comparisonSubset, total)).darker(0.6))
+      .text(([, members]) => `${compareSubsetLabel(members[0].comparisonSubset, total)} · ${members.length}`);
+  }
 
   const node = graphLayer.append("g")
   .attr("class", "nodes")
@@ -952,61 +1007,99 @@ if (graph.mode === "comparison") {
 
     node
       .attr("transform", (d) => `translate(${d.x},${d.y})`);
-  });
-}
 
-function comparisonX(d, width) {
-  const selectedTags = state.currentGraph && state.currentGraph.compareTags
-    ? state.currentGraph.compareTags
-    : Array.from(state.compareTags);
-
-  if (selectedTags.length === 0) return width * 0.5;
-
-  const anchorPositions = new Map();
-
-  selectedTags.forEach((tag, index) => {
-    const x = width * (0.18 + (0.64 * index) / Math.max(1, selectedTags.length - 1));
-    anchorPositions.set(tag, x);
-  });
-
-  if (state.compareTags.has(d.id)) {
-    return anchorPositions.get(d.id) || width * 0.5;
-  }
-
-  if (!d.comparisonWeights || d.comparisonWeights.length === 0) {
-    return width * 0.5;
-  }
-
-  const positiveWeights = d.comparisonWeights.filter((item) => item.weight > 0);
-
-  if (positiveWeights.length === 1) {
-    const selected = positiveWeights[0].selected;
-    const anchorX = anchorPositions.get(selected) || width * 0.5;
-
-    if (selectedTags.length === 2) {
-      const index = selectedTags.indexOf(selected);
-      return index === 0 ? anchorX + width * 0.10 : anchorX - width * 0.10;
+    // Keep each region label just outside its cluster (above it in the top
+    // half of the map, below it in the bottom half).
+    if (regionLabels) {
+      regionLabels
+        .attr("x", ([, members]) => d3.mean(members, (m) => m.x))
+        .attr("y", ([, members]) => {
+          const below = members[0].ty >= compareLayout.cy;
+          return below
+            ? d3.max(members, (m) => m.y + nodeRadius(m)) + 16
+            : d3.min(members, (m) => m.y - nodeRadius(m)) - 8;
+        });
     }
-
-    return anchorX;
-  }
-
-  const total = d3.sum(positiveWeights, (item) => item.weight);
-
-  if (total === 0) return width * 0.5;
-
-  const weightedX = d3.sum(positiveWeights, (item) => {
-    return (anchorPositions.get(item.selected) || width * 0.5) * item.weight;
-  }) / total;
-
-  return weightedX;
+  });
 }
 
-function comparisonY(d, height) {
-  if (d.comparisonGroup === "anchor_a") return height * 0.50;
-  if (d.comparisonGroup === "anchor_b") return height * 0.50;
 
-  return height * 0.50;
+const COMPARE_PALETTE = ["#d1495b", "#2e86ab", "#e09f3e", "#5b8e3e", "#8e5ea2", "#2a9d8f", "#b5651d", "#6c757d"];
+
+function compareColor(tag) {
+  const tags = (state.currentGraph && state.currentGraph.compareTags) || Array.from(state.compareTags);
+  const i = Math.max(0, tags.indexOf(tag));
+  return COMPARE_PALETTE[i % COMPARE_PALETTE.length];
+}
+
+// Colour for a combination of compare tags: one tag -> its colour (lightened),
+// every tag -> dark neutral, a partial set -> blend of its tags' colours.
+function compareSubsetColor(subset, total) {
+  if (!subset || !subset.length) return "#d0d0d0";
+  if (subset.length === total) return "#3d3633";
+  const colors = subset.map((t) => d3.rgb(compareColor(t)));
+  const mix = d3.rgb(
+    d3.mean(colors, (c) => c.r), d3.mean(colors, (c) => c.g), d3.mean(colors, (c) => c.b)
+  );
+  return subset.length === 1
+    ? d3.interpolateRgb(mix, "#ffffff")(0.3)
+    : d3.interpolateRgb(mix, "#8a8380")(0.35);
+}
+
+function compareSubsetLabel(subset, total) {
+  if (!subset || !subset.length) return "";
+  if (subset.length === total && total > 1) return `Shared by all ${total}`;
+  if (subset.length === 1) return `Only ${subset[0]}`;
+  return subset.join(" ∩ ") + " only";
+}
+
+// Anchor positions: two tags sit left/right; three or more sit on an ellipse.
+function compareAnchorPositions(tags, width, height) {
+  const cx = width / 2;
+  const cy = height / 2;
+  const rx = width * 0.28;
+  const ry = height * (tags.length === 2 ? 0.29 : 0.25);
+  const map = new Map();
+  tags.forEach((tag, i) => {
+    const angle = tags.length === 2
+      ? (i === 0 ? Math.PI : 0)
+      : -Math.PI / 2 + (2 * Math.PI * i) / tags.length;
+    map.set(tag, { x: cx + rx * Math.cos(angle), y: cy + ry * Math.sin(angle) });
+  });
+  return { cx, cy, map };
+}
+
+// Target point for a node: anchors at their slot, the full intersection in the
+// middle, a partial intersection between its tags, a difference outside its tag.
+function comparisonTarget(d, layout, total) {
+  const { cx, cy, map } = layout;
+  if (d.comparisonGroup === "anchor") return map.get(d.id);
+  if (d.comparisonGroup === "all") return { x: cx, y: cy };
+
+  const pts = (d.comparisonSubset || []).map((t) => map.get(t)).filter(Boolean);
+  if (!pts.length) return { x: cx, y: cy };
+  const mx = d3.mean(pts, (p) => p.x);
+  const my = d3.mean(pts, (p) => p.y);
+  if (d.comparisonGroup === "only") {
+    return { x: mx + (mx - cx) * 0.36, y: my + (my - cy) * 0.36 };
+  }
+
+  // Partial intersection: keep it clearly away from the central "all" cluster.
+  // Work in a normalised (circular) space so the ellipse does not distort it.
+  const rx = d3.mean(Array.from(map.values()), (p) => Math.abs(p.x - cx)) || 1;
+  const ry = d3.mean(Array.from(map.values()), (p) => Math.abs(p.y - cy)) || 1;
+  let ux = (mx - cx) / rx;
+  let uy = (my - cy) / ry;
+  let dist = Math.hypot(ux, uy);
+  if (dist < 0.05) {
+    // Opposite tags (e.g. 1st and 3rd of four) average to the centre:
+    // place the group to the side, perpendicular to the line between them.
+    ux = -(pts[0].y - cy) / ry;
+    uy = (pts[0].x - cx) / rx;
+    dist = Math.hypot(ux, uy) || 1;
+  }
+  const r = Math.max(dist, 0.62);
+  return { x: cx + (ux / dist) * r * rx, y: cy + (uy / dist) * r * ry };
 }
 
 function isCompareAnchor(id) {
@@ -1026,21 +1119,8 @@ function nodeColor(d) {
   if (graph && graph.mode === "works") return categoryColor(d.category);
 
   if (graph && graph.mode === "comparison") {
-    const compareTags = new Set(graph.compareTags || Array.from(state.compareTags));
-
-    if (compareTags.has(d.id)) {
-      return "#111111";
-    }
-
-    if (d.comparisonGroup === "shared") {
-      return "#b8b8b8";
-    }
-
-    if (String(d.comparisonGroup || "").startsWith("only_")) {
-      return "#9a9a9a";
-    }
-
-    return "#d0d0d0";
+    if (d.comparisonGroup === "anchor") return compareColor(d.id);
+    return compareSubsetColor(d.comparisonSubset, graph.compareTags.length);
   }
 
   if (state.viewMode === "comparison" && state.compareTags.size > 0) {
@@ -1209,8 +1289,8 @@ function showNodeInspector(node) {
       </div>
 
       ${
-        node.comparisonGroup
-          ? `<p><strong>Comparison group:</strong> ${node.comparisonGroup}</p>`
+        node.comparisonGroup && node.comparisonGroup !== "anchor"
+          ? `<p><strong>Comparison group:</strong> ${compareSubsetLabel(node.comparisonSubset, state.compareTags.size)}</p>`
           : ""
       }
 
@@ -1272,102 +1352,67 @@ function getWorksForPair(tagA, tagB) {
 
 function compareSelectedTags() {
   const selectedTags = Array.from(state.compareTags);
+  const results = d3.select("#compare-results");
 
   if (selectedTags.length < 2) {
-    d3.select("#compare-results").html(
-      "Add two or more tags to compare their co-occurrence patterns."
-    );
+    results.html("Add two or more tags to compare their co-occurrence patterns.");
     return;
   }
 
   const graph = state.currentGraph;
-  const weightMap = new Map();
+  if (!graph || graph.mode !== "comparison") return;
 
-  for (const link of graph.links) {
-    const source = getLinkName(link.source);
-    const target = getLinkName(link.target);
+  const total = selectedTags.length;
+  const rows = graph.nodes.filter((n) => n.comparisonGroup && n.comparisonGroup !== "anchor");
+  const weightOf = (row, tag) => (row.comparisonWeights.find((w) => w.selected === tag) || {}).weight || 0;
+  const dot = (color) => `<span class="cmp-dot" style="background:${color}"></span>`;
+  const anchorChip = (tag) => `<span class="cmp-anchor">${dot(compareColor(tag))}${escapeHtml(tag)}</span>`;
 
-    weightMap.set(pairKey(source, target), link.weight);
+  const listRows = (items, tags, limit) => {
+    if (!items.length) return `<li class="small-note">None under the current filters</li>`;
+    const shown = items.slice(0, limit).map((row) => {
+      const values = tags.map((t) => `${escapeHtml(t)}: ${weightOf(row, t)}`).join(", ");
+      return `<li>${escapeHtml(row.id)} <span class="small-note">(${values})</span></li>`;
+    }).join("");
+    const more = items.length > limit ? `<li class="small-note">+ ${items.length - limit} more</li>` : "";
+    return shown + more;
+  };
+
+  const group = (title, color, items, tags, limit) => `
+    <details class="compare-group" ${items.length ? "open" : ""}>
+      <summary>${dot(color)}<span>${title}</span><span class="cmp-count">${items.length}</span></summary>
+      <ul>${listRows(items, tags, limit)}</ul>
+    </details>`;
+
+  const byTotal = (a, b) => b.comparisonTotalWeight - a.comparisonTotalWeight;
+
+  // Intersection
+  const shared = rows.filter((r) => r.comparisonGroup === "all").sort(byTotal);
+  let html = `<div class="cmp-anchors">${selectedTags.map(anchorChip).join("")}</div>`;
+  html += `<h4 class="cmp-heading">Intersection</h4>`;
+  html += group(`Shared by all ${total}`, compareSubsetColor(selectedTags, total), shared, selectedTags, 10);
+
+  // Partial intersections (only when 3+ tags)
+  if (total >= 3) {
+    const partial = d3.groups(rows.filter((r) => r.comparisonGroup === "some"), (r) => r.comparisonKey)
+      .map(([, items]) => ({ subset: items[0].comparisonSubset, items: items.sort(byTotal) }))
+      .sort((a, b) => b.subset.length - a.subset.length || b.items.length - a.items.length);
+    html += `<h4 class="cmp-heading">Partial intersections</h4>`;
+    html += partial.length
+      ? partial.map((g) => group(escapeHtml(g.subset.join(" ∩ ")) + " only", compareSubsetColor(g.subset, total), g.items, g.subset, 6)).join("")
+      : `<p class="small-note">No tags are shared by only some of the selected tags.</p>`;
   }
 
-  const candidates = graph.nodes
-    .map((node) => node.id)
-    .filter((tag) => !state.compareTags.has(tag));
+  // Differences
+  html += `<h4 class="cmp-heading">Differences</h4>`;
+  html += selectedTags.map((tag) => {
+    const items = rows
+      .filter((r) => r.comparisonGroup === "only" && r.comparisonSubset[0] === tag)
+      .sort((a, b) => weightOf(b, tag) - weightOf(a, tag));
+    return group(`Only ${escapeHtml(tag)}`, compareSubsetColor([tag], total), items, [tag], 8);
+  }).join("");
 
-  const rows = candidates.map((target) => {
-    const weights = selectedTags.map((selected) => {
-      return {
-        selected,
-        weight: weightMap.get(pairKey(selected, target)) || 0
-      };
-    });
-
-    const total = d3.sum(weights, (d) => d.weight);
-    const max = d3.max(weights, (d) => d.weight) || 0;
-    const strongest = weights.filter((d) => d.weight === max && max > 0);
-
-    return {
-      target,
-      weights,
-      total,
-      max,
-      strongest
-    };
-  }).filter((d) => d.total > 0);
-
-  const shared = rows
-    .filter((row) => row.weights.every((d) => d.weight > 0))
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 8);
-
-  const bySelectedTag = selectedTags.map((selected) => {
-    const top = rows
-      .filter((row) => {
-        const selectedWeight = row.weights.find((d) => d.selected === selected).weight;
-        return selectedWeight > 0 && row.strongest.some((d) => d.selected === selected);
-      })
-      .sort((a, b) => {
-        const aw = a.weights.find((d) => d.selected === selected).weight;
-        const bw = b.weights.find((d) => d.selected === selected).weight;
-        return bw - aw;
-      })
-      .slice(0, 6);
-
-    return { selected, top };
-  });
-
-  d3.select("#compare-results").html(`
-    <strong>Comparison tags</strong><br>
-    ${selectedTags.join(" / ")}
-
-    <div class="compare-group">
-      <h4>Shared by all selected tags</h4>
-      <ul>
-        ${
-          shared.map((row) => {
-            const values = row.weights.map((d) => `${d.selected}: ${d.weight}`).join(", ");
-            return `<li>${row.target} <span class="small-note">(${values})</span></li>`;
-          }).join("") || "<li>No visible shared result</li>"
-        }
-      </ul>
-    </div>
-
-    ${
-      bySelectedTag.map((group) => `
-        <div class="compare-group">
-          <h4>Strongest near ${group.selected}</h4>
-          <ul>
-            ${
-              group.top.map((row) => {
-                const selectedWeight = row.weights.find((d) => d.selected === group.selected).weight;
-                return `<li>${row.target}: ${selectedWeight}</li>`;
-              }).join("") || "<li>No visible result</li>"
-            }
-          </ul>
-        </div>
-      `).join("")
-    }
-  `);
+  results.html(html);
 }
 function renderComparisonBars(weights) {
   const maxWeight = d3.max(weights, (d) => d.weight) || 1;
@@ -1429,8 +1474,8 @@ function showNodeTooltip(event, node) {
       Category: ${formatCategory(node.category)}<br>
       Frequency: ${node.frequency}<br>
       ${
-        node.comparisonGroup
-          ? `Group: ${node.comparisonGroup}<br>`
+        node.comparisonGroup && node.comparisonGroup !== "anchor"
+          ? `Group: ${compareSubsetLabel(node.comparisonSubset, state.compareTags.size)}<br>`
           : ""
       }
       ${
