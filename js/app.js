@@ -27,7 +27,8 @@ const state = {
   compareWorks: new Set(),
   // Analysis tab (hashtag lens)
   // hidden: hashtags left out of both ① and ② (로맨스판타지 by default)
-  analysis: { focus: "능력녀", method: "works", jaccard: 0.2, hidden: new Set(["로맨스판타지"]), result: null, sort: "together" },
+  analysis: { focus: "능력녀", method: "works", jaccard: 0.2, hidden: new Set(["로맨스판타지"]), result: null, sort: "together",
+    runSeed: null, nextSeed: 11, align: false, tableCats: null },
   worksListVisible: true,
   currentGraph: null
 };
@@ -1300,7 +1301,10 @@ function runAnalysis() {
     });
   }
 
-  const r = louvainRuns(nodes, edges, 10);
+  const batch = louvainRuns(nodes, edges, 10);
+  // Default: best of seeds 1–10 (reproducible). "Re-run" shows one run with a new seed.
+  const single = a.runSeed != null ? louvain(nodes, edges, a.runSeed) : null;
+  const r = single ? { ...single, seed: a.runSeed } : batch;
 
   // Order clusters by size; nodes with no links at all are "unlinked".
   const degree = new Map(nodes.map((n) => [n, 0]));
@@ -1312,7 +1316,42 @@ function runAnalysis() {
     if (!groups.has(c)) groups.set(c, []);
     groups.get(c).push(n);
   }
-  const ordered = Array.from(groups.values()).sort((x, y) => y.length - x.length);
+  let ordered = Array.from(groups.values()).sort((x, y) => y.length - x.length);
+
+  // When re-running, keep each cluster's number/colour if it mostly matches a
+  // cluster from the previous result, so colours do not jump around.
+  const prev = a.align && a.result && a.result.method === a.method && a.result.focus === a.focus ? a.result.clusterOf : null;
+  if (prev) {
+    const pairs = [];
+    ordered.forEach((members, g) => {
+      const overlap = new Map();
+      for (const n of members) {
+        const p = prev.get(n);
+        if (p != null && p >= 0) overlap.set(p, (overlap.get(p) || 0) + 1);
+      }
+      for (const [p, n] of overlap) pairs.push({ g, p, n });
+    });
+    pairs.sort((x, y) => y.n - x.n);
+    const gTo = new Map();
+    const used = new Set();
+    for (const { g, p } of pairs) {
+      if (gTo.has(g) || used.has(p)) continue;
+      gTo.set(g, p);
+      used.add(p);
+    }
+    let free = 0;
+    ordered.forEach((_, g) => {
+      if (gTo.has(g)) return;
+      while (used.has(free)) free++;
+      gTo.set(g, free);
+      used.add(free);
+    });
+    // Sort groups by their matched slot, then number them 0, 1, 2… in that order.
+    ordered = ordered
+      .map((members, g) => ({ members, slot: gTo.get(g) }))
+      .sort((x, y) => x.slot - y.slot)
+      .map((x) => x.members);
+  }
   const clusterOf = new Map();
   ordered.forEach((members, i) => members.forEach((n) => clusterOf.set(n, i)));
   const unlinked = nodes.filter((n) => !degree.get(n));
@@ -1338,12 +1377,16 @@ function runAnalysis() {
 
   return {
     kind, nodes, edges, degree, clusterOf, clusters, unlinked, freqWithin,
-    modularity: r.modularity, qMin: r.qMin, qMax: r.qMax, runs: r.runs, seed: r.seed,
+    modularity: r.modularity, qMin: batch.qMin, qMax: batch.qMax, runs: batch.runs, seed: r.seed,
+    bestSeed: batch.seed, singleRun: !!single,
+    changed: prev ? nodes.filter((n) => (clusterOf.get(n) ?? -1) >= 0 && (prev.get(n) ?? -1) >= 0 && clusterOf.get(n) !== prev.get(n)).length : null,
     method: a.method, focus: a.focus, jaccard: a.jaccard, hidden: Array.from(a.hidden).filter((t) => t !== a.focus)
   };
 }
 
 function buildAnalysisGraph() {
+  state.analysis.runSeed = null;
+  state.analysis.align = false;
   const res = runAnalysis();
   state.analysis.result = res;
   const nodes = res.nodes.map((id) => {
@@ -1362,6 +1405,30 @@ function buildAnalysisGraph() {
   });
   const links = res.edges.map((e) => ({ ...e }));
   return { mode: "clusters", kind: res.kind, nodes, links, clusterCount: res.clusters.length };
+}
+
+function rerunAnalysis(seed) {
+  state.analysis.runSeed = seed;
+  state.analysis.align = true;
+  const res = runAnalysis();
+  state.analysis.align = false;
+  state.analysis.result = res;
+  const g = state.currentGraph;
+  if (g && g.mode === "clusters" && currentSim) {
+    g.clusterCount = res.clusters.length;
+    if (currentSim.__clusterLayout) currentSim.__clusterLayout.k = Math.max(1, res.clusters.length);
+    for (const n of currentSim.nodes()) n.cluster = res.clusterOf.get(n.id);
+    for (const n of g.nodes) n.cluster = res.clusterOf.get(n.id);
+    graphLayer.selectAll("g.node").select("circle")
+      .attr("fill", (d) => nodeColor(d))
+      .attr("stroke", (d) => nodeStroke(d));
+    // re-read the cluster targets and let nodes drift toward them
+    const fx = currentSim.force("x");
+    const fy = currentSim.force("y");
+    if (fx && fy) { fx.x(fx.x()); fy.y(fy.y()); }
+    currentSim.alpha(0.5).restart();
+  }
+  renderAnalysisPanel();
 }
 
 function setupAnalysisControls() {
@@ -1466,17 +1533,49 @@ function renderAnalysisHiddenChips() {
 
 function pct(x) { return `${Math.round(x * 100)}%`; }
 
+function analysisTableCategories() {
+  if (!state.analysis.tableCats) {
+    state.analysis.tableCats = new Set(state.metadata.map((d) => d.category));
+  }
+  return state.analysis.tableCats;
+}
+
+function renderTableCategoryToggles(allRows) {
+  const box = d3.select("#an-table-cats");
+  if (box.empty()) return;
+  const cats = Array.from(new Set(state.metadata.map((d) => d.category))).sort();
+  const on = analysisTableCategories();
+  const counts = d3.rollup(allRows, (v) => v.length, (r) => r.category);
+  const labels = box.selectAll("label").data(cats, (d) => d).join((enter) => {
+    const l = enter.append("label").attr("class", "an-cat-toggle");
+    l.append("input").attr("type", "checkbox");
+    l.append("span").attr("class", "cat-dot");
+    l.append("span").attr("class", "an-cat-name");
+    return l;
+  });
+  labels.select("input").property("checked", (d) => on.has(d)).on("change", function (event, d) {
+    if (this.checked) on.add(d); else on.delete(d);
+    renderCooccurrenceTable();
+  });
+  labels.select(".cat-dot").style("background", (d) => categoryColor(d));
+  labels.select(".an-cat-name").text((d) => `${formatCategory(d)} (${counts.get(d) || 0})`);
+}
+
 function renderCooccurrenceTable() {
-  const { rows, focusCount, total } = cooccurrenceRows();
+  const { rows: allRows, focusCount, total } = cooccurrenceRows();
+  renderTableCategoryToggles(allRows);
+  const on = analysisTableCategories();
+  const rows = allRows.filter((r) => on.has(r.category));
   const key = state.analysis.sort;
   rows.sort((x, y) => (y[key] - x[key]) || (y.together - x.together) || x.tag.localeCompare(y.tag, "ko"));
   const focusCat = state.metaByTag.get(state.analysis.focus)?.category;
   d3.select("#an-focus-current").html(
     `<span class="cat-dot" style="background:${categoryColor(focusCat)}"></span><span class="an-focus-label">Focus</span><strong>${escapeHtml(state.analysis.focus)}</strong>`);
   d3.select("#an-focus-summary").html(
-    `<strong>${escapeHtml(state.analysis.focus)}</strong> is on <strong>${focusCount}</strong> of ${total} works and appears with <strong>${rows.length}</strong> other hashtags` +
+    `<strong>${escapeHtml(state.analysis.focus)}</strong> is on <strong>${focusCount}</strong> of ${total} works and appears with <strong>${allRows.length}</strong> other hashtags` +
     (state.analysis.hidden.size ? ` (${Array.from(state.analysis.hidden).filter((t) => t !== state.analysis.focus).length} hidden).` : "."));
   d3.select("#an-table-head").selectAll("th[data-sort]").classed("sorted", function () { return this.dataset.sort === key; });
+  d3.select("#an-table-shown").text(rows.length === allRows.length ? "" : `Showing ${rows.length} of ${allRows.length} hashtags.`);
   d3.select("#an-table-body").selectAll("tr").data(rows, (d) => d.tag).join("tr")
     .html((d) => `
       <td><span class="cat-dot" style="background:${categoryColor(d.category)}"></span>${escapeHtml(d.tag)}</td>
@@ -1498,8 +1597,22 @@ function renderAnalysisPanel() {
     <div class="an-q">
       <div><span class="an-q-label">Modularity (Q)</span><span class="an-q-value">${res.modularity.toFixed(3)}</span></div>
       <div class="an-q-meta">${strength} · ${res.clusters.length} clusters · ${res.nodes.length - res.unlinked.length} of ${res.nodes.length} ${unitPlural} linked${res.method === "works" ? ` (similarity ≥ ${res.jaccard.toFixed(2)})` : ""}
-        <br>${res.runs} runs (seeds 1–${res.runs}): Q ${res.qMin.toFixed(3)}–${res.qMax.toFixed(3)}; best shown (seed ${res.seed}).</div>
+        <br>${res.singleRun
+          ? `<strong>Single run · seed ${res.seed}.</strong> For reference, ${res.runs} runs (seeds 1–${res.runs}) give Q ${res.qMin.toFixed(3)}–${res.qMax.toFixed(3)}.`
+          : `<strong>Best of ${res.runs} runs</strong> (seeds 1–${res.runs}, best = seed ${res.bestSeed}); Q ranges ${res.qMin.toFixed(3)}–${res.qMax.toFixed(3)}.`}
+        ${res.changed != null
+          ? `<br><span class="an-changed">${res.changed ? `${res.changed} ${unitPlural} changed cluster compared with the previous result.` : "Same clusters as the previous result."}</span>`
+          : ""}</div>
+      <div class="an-run-buttons">
+        <button type="button" id="an-rerun">↻ Re-run</button>
+        <button type="button" id="an-best" ${res.singleRun ? "" : "disabled"}>Best of ${res.runs}</button>
+      </div>
     </div>`);
+  d3.select("#an-rerun").on("click", () => {
+    const seed = state.analysis.nextSeed++;
+    rerunAnalysis(seed);
+  });
+  d3.select("#an-best").on("click", () => rerunAnalysis(null));
 
   const focusNote = res.method === "whole"
     ? res.clusters.find((c) => c.hasFocus)
@@ -1552,7 +1665,9 @@ function downloadCSV(filename, rows) {
 }
 
 function downloadCooccurrenceCSV() {
-  const { rows, focusCount, total } = cooccurrenceRows();
+  const { rows: allRows, focusCount, total } = cooccurrenceRows();
+  const on = analysisTableCategories();
+  const rows = allRows.filter((r) => on.has(r.category)); // export what the table shows
   rows.sort((x, y) => y.together - x.together || x.tag.localeCompare(y.tag, "ko"));
   const f = state.analysis.focus;
   downloadCSV(`cooccurrence_${f}.csv`, [
@@ -1566,10 +1681,10 @@ function downloadCooccurrenceCSV() {
 function downloadClustersCSV() {
   const res = state.analysis.result;
   if (!res) return;
-  const header = ["method", "focus_tag", "modularity_best", "modularity_min", "modularity_max", "seed",
+  const header = ["method", "focus_tag", "result", "modularity", "modularity_min_10_runs", "modularity_max_10_runs", "seed",
     "jaccard_threshold", "hidden_tags", "cluster", "item_type", "id", "title_or_tag", "rank", "degree"];
   const out = [header];
-  const meta = [ANALYSIS_METHODS[res.method].label, res.focus, res.modularity.toFixed(4), res.qMin.toFixed(4),
+  const meta = [ANALYSIS_METHODS[res.method].label, res.focus, res.singleRun ? "single run" : "best of 10", res.modularity.toFixed(4), res.qMin.toFixed(4),
     res.qMax.toFixed(4), res.seed, res.method === "works" ? res.jaccard : "", res.hidden.join("; ")];
   const row = (cluster, id) => {
     if (res.kind === "work") {
@@ -1786,6 +1901,8 @@ function drawNetwork(graph) {
     });
 }
 
+  if (currentSim) currentSim.stop();
+  currentSim = null;
   let compareLayout = null;
 
   if (graph.mode === "comparison") {
@@ -1842,12 +1959,13 @@ function drawNetwork(graph) {
   });
 
   if (isClusters) {
-    const k = Math.max(1, graph.clusterCount);
+    const layout = { k: Math.max(1, graph.clusterCount) };
+    simulation.__clusterLayout = layout;
     const cx = width / 2;
     const cy = height / 2;
     const target = (c) => {
       if (c == null || c < 0) return { x: cx, y: cy };
-      const ang = -Math.PI / 2 + (2 * Math.PI * c) / k;
+      const ang = -Math.PI / 2 + (2 * Math.PI * c) / layout.k;
       return { x: cx + Math.cos(ang) * width * 0.24, y: cy + Math.sin(ang) * height * 0.24 };
     };
     simulation
@@ -2006,6 +2124,7 @@ function drawNetwork(graph) {
     });
   };
   currentRender = render;
+  currentSim = simulation;
 
   simulation.on("tick", () => {
     render();
@@ -2234,6 +2353,7 @@ let nodeClickTimer = null;
 // while the rest of the map stays put. Display-only: the layout is unchanged.
 const magnifier = { on: false, focus: null, dragging: false, radius: 170, distortion: 3.2 };
 let currentRender = null;
+let currentSim = null;
 
 function fisheyeFocus() {
   return magnifier.on && !magnifier.dragging ? magnifier.focus : null;
