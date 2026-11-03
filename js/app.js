@@ -25,6 +25,8 @@ const state = {
   includeRomance: false,
   highlightTags: new Map(), // tag -> colour, in the order they were picked
   compareWorks: new Set(),
+  // Analysis tab (hashtag lens)
+  analysis: { focus: "능력녀", method: "works", jaccard: 0.2, includeRomance: false, result: null, sort: "together" },
   worksListVisible: true,
   currentGraph: null
 };
@@ -58,6 +60,7 @@ Promise.all([
     setupControls();
     setupHelpModal();
     setupWorkLensControls();
+    setupAnalysisControls();
     setupMagnifier();
     setupModeSwitch();
     updateNetwork();
@@ -435,6 +438,8 @@ function updateNetwork() {
     graph = mode === "comparison" && state.compareWorks.size >= 2
       ? buildWorkComparisonGraph()
       : buildWorkGraph();
+  } else if (mode === "analysis") {
+    graph = buildAnalysisGraph();
   } else {
     graph = mode === "works" && state.worksTags.size
       ? buildWorksGraph()
@@ -451,6 +456,7 @@ function updateNetwork() {
     updateCompareFilterNote();
     renderWorksList();
     if (mode === "comparison") compareSelectedTags();
+    if (mode === "analysis") renderAnalysisPanel();
   } else {
     renderHighlightChips();
     renderCompareWorksChips();
@@ -467,7 +473,7 @@ function updateNetwork() {
   }
 
   let counts;
-  if (graph.mode === "works" || graph.mode === "worknet") {
+  if (graph.mode === "works" || graph.mode === "worknet" || (graph.mode === "clusters" && graph.kind === "work")) {
     counts = `<strong>${graph.nodes.filter((d) => d.type === "work").length}</strong> works · <strong>${graph.links.length}</strong> links`;
   } else if (graph.mode === "comparison" && graph.lens === "work") {
     counts = `<strong>${graph.compareTags.length}</strong> works · <strong>${graph.nodes.length - graph.compareTags.length}</strong> hashtags`;
@@ -499,6 +505,7 @@ const MODE_HELP = {
   "tag:full": "Explore the whole hashtag network. Use the filters to hide tags or thin out weak links.",
   "tag:comparison": "Pick two or more hashtags to see which tags sit near each one, and which they share.",
   "tag:works": "Pick hashtags to list and map the works that carry them.",
+  "tag:analysis": "Pick a focus hashtag. ① shows which hashtags it is paired with; ② splits the network into clusters with the Louvain method and reports modularity.",
   "work:full": "Each node is a work. Works are linked when their hashtags overlap, and more similar works sit closer together; bigger nodes are linked to more works. Hover for the full title, click for details.",
   "work:comparison": "Pick two or more works to see which hashtags they share and which belong to only one of them."
 };
@@ -520,8 +527,9 @@ function setLens(lens, initial = false) {
     .attr("aria-pressed", function () { return this.dataset.lens === lens ? "true" : "false"; });
   // "Find works" only exists in the hashtag lens.
   d3.select('#mode-switch button[data-mode="works"]').classed("mode-hidden", lens === "work");
+  d3.select('#mode-switch button[data-mode="analysis"]').classed("mode-hidden", lens === "work");
   d3.select("#mode-switch").classed("two-tabs", lens === "work");
-  if (lens === "work" && state.viewMode === "works") state.viewMode = "full";
+  if (lens === "work" && (state.viewMode === "works" || state.viewMode === "analysis")) state.viewMode = "full";
   setViewMode(state.viewMode, initial);
 }
 
@@ -1046,6 +1054,482 @@ function showWorkEdgeInspector(edge) {
   `);
 }
 
+// ---- Community detection: Louvain (Blondel et al. 2008) ----
+// Deterministic for a given seed. nodes: array of ids; edges: [{source, target, weight}]
+// Returns { communities: Map(id -> community index), modularity }.
+function seededRandom(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function computeModularity(nodes, edges, community) {
+  let m = 0;
+  const degree = new Map(nodes.map((n) => [n, 0]));
+  const internal = new Map();
+  const total = new Map();
+  for (const e of edges) {
+    m += e.weight;
+    degree.set(e.source, degree.get(e.source) + e.weight);
+    degree.set(e.target, degree.get(e.target) + e.weight);
+    if (community.get(e.source) === community.get(e.target)) {
+      const c = community.get(e.source);
+      internal.set(c, (internal.get(c) || 0) + e.weight);
+    }
+  }
+  if (!m) return 0;
+  for (const n of nodes) {
+    const c = community.get(n);
+    total.set(c, (total.get(c) || 0) + degree.get(n));
+  }
+  let q = 0;
+  for (const [c, tot] of total) q += (internal.get(c) || 0) / m - Math.pow(tot / (2 * m), 2);
+  return q;
+}
+
+function louvain(nodes, edges, seed = 1) {
+  const rand = seededRandom(seed);
+  // Level-0 graph: integer node indices, adjacency as Map(neighbor -> weight).
+  let size = nodes.length;
+  let adj = Array.from({ length: size }, () => new Map());
+  const index = new Map(nodes.map((n, i) => [n, i]));
+  let m2 = 0; // 2m
+  for (const e of edges) {
+    const a = index.get(e.source);
+    const b = index.get(e.target);
+    if (a === b) continue;
+    adj[a].set(b, (adj[a].get(b) || 0) + e.weight);
+    adj[b].set(a, (adj[b].get(a) || 0) + e.weight);
+    m2 += 2 * e.weight;
+  }
+  let strength = adj.map((nb) => { let s = 0; for (const w of nb.values()) s += w; return s; });
+  // membership[i] = community of original node i
+  let membership = nodes.map((_, i) => i);
+  if (!m2) return { communities: new Map(nodes.map((n, i) => [n, i])), modularity: 0 };
+
+  for (let level = 0; level < 50; level++) {
+    const comm = Array.from({ length: size }, (_, i) => i);
+    const tot = strength.slice();
+    let movedAny = false;
+    let improved = true;
+    let passes = 0;
+    while (improved && passes < 100) {
+      improved = false;
+      passes++;
+      const order = Array.from({ length: size }, (_, i) => i);
+      for (let i = order.length - 1; i > 0; i--) {
+        const j = Math.floor(rand() * (i + 1));
+        [order[i], order[j]] = [order[j], order[i]];
+      }
+      for (const i of order) {
+        const ci = comm[i];
+        const ki = strength[i];
+        // weights from i to each neighbouring community
+        const links = new Map();
+        for (const [j, w] of adj[i]) {
+          if (j === i) continue;
+          links.set(comm[j], (links.get(comm[j]) || 0) + w);
+        }
+        tot[ci] -= ki;
+        let best = ci;
+        let bestGain = (links.get(ci) || 0) - (tot[ci] * ki) / m2;
+        for (const [c, w] of links) {
+          const gain = w - (tot[c] * ki) / m2;
+          if (gain > bestGain + 1e-12) { bestGain = gain; best = c; }
+        }
+        tot[best] += ki;
+        if (best !== ci) { comm[i] = best; improved = true; movedAny = true; }
+      }
+    }
+    if (!movedAny) break;
+    // Renumber communities and aggregate the graph.
+    const renum = new Map();
+    for (const c of comm) if (!renum.has(c)) renum.set(c, renum.size);
+    membership = membership.map((c) => renum.get(comm[c]));
+    const newSize = renum.size;
+    const newAdj = Array.from({ length: newSize }, () => new Map());
+    const newStrength = new Array(newSize).fill(0);
+    for (let i = 0; i < size; i++) {
+      const ci = renum.get(comm[i]);
+      newStrength[ci] += strength[i];
+      for (const [j, w] of adj[i]) {
+        const cj = renum.get(comm[j]);
+        if (ci === cj) continue;
+        newAdj[ci].set(cj, (newAdj[ci].get(cj) || 0) + w);
+      }
+    }
+    // newAdj counted each edge from both ends, which matches the level-0 convention.
+    size = newSize;
+    adj = newAdj;
+    strength = newStrength;
+  }
+
+  const communities = new Map(nodes.map((n, i) => [n, membership[i]]));
+  return { communities, modularity: computeModularity(nodes, edges, communities) };
+}
+
+// Run several seeds; keep the best partition and report the spread of Q.
+function louvainRuns(nodes, edges, runs = 10) {
+  let best = null;
+  const qs = [];
+  for (let seed = 1; seed <= runs; seed++) {
+    const r = louvain(nodes, edges, seed);
+    qs.push(r.modularity);
+    if (!best || r.modularity > best.modularity + 1e-12) best = { ...r, seed };
+  }
+  return { ...best, qMin: Math.min(...qs), qMax: Math.max(...qs), runs };
+}
+
+
+// =====================================================================
+// Analysis tab: ① co-occurrence with a focus tag, ② community detection
+// =====================================================================
+const CLUSTER_PALETTE = ["#d1495b", "#2e86ab", "#e09f3e", "#5b8e3e", "#8e5ea2", "#2a9d8f", "#b5651d", "#c77dba", "#6c8ead", "#a1a14a"];
+
+const ANALYSIS_METHODS = {
+  works: {
+    label: "Works with this tag",
+    help: "Takes only the works that carry the focus tag and groups them by how similar their other hashtags are (Jaccard). Each cluster is a group of works, e.g. one kind of story the tag covers."
+  },
+  tags: {
+    label: "Tags around this tag",
+    help: "Takes only the works that carry the focus tag and groups the other hashtags that tend to appear together in them. The focus tag itself is left out."
+  },
+  whole: {
+    label: "Whole hashtag network",
+    help: "Splits the entire hashtag network (all works) into clusters and shows which one the focus tag falls into. Useful as a comparison with the two views above."
+  }
+};
+
+function clusterColor(c) {
+  if (c == null || c < 0) return "#ffffff";
+  return c < CLUSTER_PALETTE.length ? CLUSTER_PALETTE[c] : "#b8b0ab";
+}
+
+function analysisWorks() {
+  return worksWithTags().filter((w) => state.tagsByWork.get(w.work_id).has(state.analysis.focus));
+}
+
+// ① For every other tag: how often it appears with the focus tag, and from
+// both directions as a share.
+function cooccurrenceRows() {
+  const focus = state.analysis.focus;
+  const all = worksWithTags();
+  const focusWorks = all.filter((w) => state.tagsByWork.get(w.work_id).has(focus));
+  const fx = focusWorks.length;
+  const totals = new Map();
+  for (const w of all) for (const t of state.tagsByWork.get(w.work_id)) totals.set(t, (totals.get(t) || 0) + 1);
+  const together = new Map();
+  for (const w of focusWorks) for (const t of state.tagsByWork.get(w.work_id)) {
+    if (t !== focus) together.set(t, (together.get(t) || 0) + 1);
+  }
+  return {
+    focusCount: fx,
+    total: all.length,
+    rows: Array.from(together, ([tag, n]) => ({
+      tag,
+      category: state.metaByTag.get(tag)?.category || "unknown",
+      together: n,
+      ofFocus: fx ? n / fx : 0,
+      tagTotal: totals.get(tag) || 0,
+      ofTag: totals.get(tag) ? n / totals.get(tag) : 0
+    }))
+  };
+}
+
+// ② Build the network for the chosen method and run Louvain on it.
+function runAnalysis() {
+  const a = state.analysis;
+  const dropRomance = (set) => {
+    const out = new Set(set);
+    if (!a.includeRomance) out.delete(ROMANCE_TAG);
+    return out;
+  };
+  let nodes = [];
+  let edges = [];
+  let kind = "tag";
+  let freqWithin = new Map();
+
+  if (a.method === "works") {
+    kind = "work";
+    const works = analysisWorks();
+    const sets = new Map(works.map((w) => {
+      const s = dropRomance(state.tagsByWork.get(w.work_id));
+      s.delete(a.focus); // every work has it; it says nothing about difference
+      return [w.work_id, s];
+    }));
+    nodes = works.map((w) => w.work_id);
+    for (let i = 0; i < works.length; i++) {
+      for (let j = i + 1; j < works.length; j++) {
+        const sa = sets.get(nodes[i]);
+        const sb = sets.get(nodes[j]);
+        let shared = 0;
+        for (const t of sa) if (sb.has(t)) shared++;
+        const union = sa.size + sb.size - shared;
+        const jac = union ? shared / union : 0;
+        if (shared && jac >= a.jaccard - 1e-9) edges.push({ source: nodes[i], target: nodes[j], weight: jac, shared });
+      }
+    }
+  } else {
+    const works = a.method === "tags" ? analysisWorks() : worksWithTags();
+    const pair = new Map();
+    for (const w of works) {
+      const s = dropRomance(state.tagsByWork.get(w.work_id));
+      if (a.method === "tags") s.delete(a.focus);
+      else if (state.tagsByWork.get(w.work_id).has(a.focus)) s.add(a.focus); // never drop the focus itself
+      const tags = Array.from(s).sort();
+      for (const t of tags) freqWithin.set(t, (freqWithin.get(t) || 0) + 1);
+      for (let i = 0; i < tags.length; i++) {
+        for (let j = i + 1; j < tags.length; j++) {
+          const k = tags[i] + "|||" + tags[j];
+          pair.set(k, (pair.get(k) || 0) + 1);
+        }
+      }
+    }
+    nodes = Array.from(freqWithin.keys());
+    edges = Array.from(pair, ([k, w]) => {
+      const [source, target] = k.split("|||");
+      return { source, target, weight: w };
+    });
+  }
+
+  const r = louvainRuns(nodes, edges, 10);
+
+  // Order clusters by size; nodes with no links at all are "unlinked".
+  const degree = new Map(nodes.map((n) => [n, 0]));
+  for (const e of edges) { degree.set(e.source, degree.get(e.source) + 1); degree.set(e.target, degree.get(e.target) + 1); }
+  const groups = new Map();
+  for (const n of nodes) {
+    if (!degree.get(n)) continue;
+    const c = r.communities.get(n);
+    if (!groups.has(c)) groups.set(c, []);
+    groups.get(c).push(n);
+  }
+  const ordered = Array.from(groups.values()).sort((x, y) => y.length - x.length);
+  const clusterOf = new Map();
+  ordered.forEach((members, i) => members.forEach((n) => clusterOf.set(n, i)));
+  const unlinked = nodes.filter((n) => !degree.get(n));
+  unlinked.forEach((n) => clusterOf.set(n, -1));
+
+  // Describe each cluster by its most common hashtags.
+  const clusters = ordered.map((members, i) => {
+    let topTags;
+    if (kind === "work") {
+      const counts = new Map();
+      for (const id of members) for (const t of state.tagsByWork.get(id)) {
+        if (t === a.focus || (!a.includeRomance && t === ROMANCE_TAG)) continue;
+        counts.set(t, (counts.get(t) || 0) + 1);
+      }
+      topTags = Array.from(counts).sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0], "ko")).slice(0, 8)
+        .map(([t, n]) => ({ tag: t, n }));
+    } else {
+      topTags = members.slice().sort((x, y) => (freqWithin.get(y) || 0) - (freqWithin.get(x) || 0))
+        .map((t) => ({ tag: t, n: freqWithin.get(t) || 0 }));
+    }
+    return { index: i, members, topTags, hasFocus: members.includes(a.focus) };
+  });
+
+  return {
+    kind, nodes, edges, degree, clusterOf, clusters, unlinked, freqWithin,
+    modularity: r.modularity, qMin: r.qMin, qMax: r.qMax, runs: r.runs, seed: r.seed,
+    method: a.method, focus: a.focus, jaccard: a.jaccard, includeRomance: a.includeRomance
+  };
+}
+
+function buildAnalysisGraph() {
+  const res = runAnalysis();
+  state.analysis.result = res;
+  const nodes = res.nodes.map((id) => {
+    if (res.kind === "work") {
+      const w = state.worksById.get(id) || {};
+      return {
+        id, type: "work", work_id: id, label: w.title || id, shortLabel: shortTitle(w.title || id),
+        degree: res.degree.get(id), frequency: 1, category: "work", cluster: res.clusterOf.get(id)
+      };
+    }
+    return {
+      id, type: "tag", label: id, category: state.metaByTag.get(id)?.category || "unknown",
+      frequency: res.method === "whole" ? (state.frequencyByTag.get(id) || 0) : (res.freqWithin.get(id) || 0),
+      cluster: res.clusterOf.get(id)
+    };
+  });
+  const links = res.edges.map((e) => ({ ...e }));
+  return { mode: "clusters", kind: res.kind, nodes, links, clusterCount: res.clusters.length };
+}
+
+function setupAnalysisControls() {
+  if (d3.select("#an-category").empty()) return;
+  const categories = Array.from(new Set(state.metadata.map((d) => d.category))).sort();
+  d3.select("#an-category").selectAll("option").data(categories).join("option")
+    .attr("value", (d) => d).text((d) => formatCategory(d));
+  const focusCat = state.metaByTag.get(state.analysis.focus)?.category;
+  if (focusCat) d3.select("#an-category").property("value", focusCat);
+  d3.select("#an-category").on("change", () => {
+    updateAnalysisTagDropdown(true);
+  });
+  d3.select("#an-tag").on("change", function () {
+    state.analysis.focus = this.value;
+    updateNetwork();
+  });
+
+  d3.select("#an-method").selectAll("option").data(Object.keys(ANALYSIS_METHODS)).join("option")
+    .attr("value", (d) => d).text((d) => ANALYSIS_METHODS[d].label);
+  d3.select("#an-method").property("value", state.analysis.method).on("change", function () {
+    state.analysis.method = this.value;
+    updateNetwork();
+  });
+  d3.select("#an-jaccard").on("input", function () {
+    state.analysis.jaccard = +this.value;
+    d3.select("#an-jaccard-value").text(state.analysis.jaccard.toFixed(2));
+    updateNetwork();
+  });
+  d3.select("#an-romance").on("change", function () {
+    state.analysis.includeRomance = this.checked;
+    updateNetwork();
+  });
+  d3.select("#an-table-head").selectAll("th[data-sort]").on("click", function () {
+    state.analysis.sort = this.dataset.sort;
+    renderCooccurrenceTable();
+  });
+  d3.select("#an-download-table").on("click", downloadCooccurrenceCSV);
+  d3.select("#an-download-clusters").on("click", downloadClustersCSV);
+  updateAnalysisTagDropdown(false);
+}
+
+function updateAnalysisTagDropdown(pickFirst) {
+  const cat = d3.select("#an-category").property("value");
+  const tags = Array.from(state.frequencyByTag.keys())
+    .filter((t) => (state.metaByTag.get(t)?.category || "unknown") === cat)
+    .sort((x, y) => (state.frequencyByTag.get(y) - state.frequencyByTag.get(x)) || x.localeCompare(y, "ko"));
+  d3.select("#an-tag").selectAll("option").data(tags).join("option")
+    .attr("value", (d) => d).text((d) => `${d} (${state.frequencyByTag.get(d)})`);
+  if (pickFirst || !tags.includes(state.analysis.focus)) {
+    state.analysis.focus = tags[0];
+    if (state.viewMode === "analysis") updateNetwork();
+  }
+  d3.select("#an-tag").property("value", state.analysis.focus);
+}
+
+function pct(x) { return `${Math.round(x * 100)}%`; }
+
+function renderCooccurrenceTable() {
+  const { rows, focusCount, total } = cooccurrenceRows();
+  const key = state.analysis.sort;
+  rows.sort((x, y) => (y[key] - x[key]) || (y.together - x.together) || x.tag.localeCompare(y.tag, "ko"));
+  d3.select("#an-focus-summary").html(
+    `<strong>${escapeHtml(state.analysis.focus)}</strong> is on <strong>${focusCount}</strong> of ${total} works and appears with <strong>${rows.length}</strong> other hashtags.`);
+  d3.select("#an-table-head").selectAll("th[data-sort]").classed("sorted", function () { return this.dataset.sort === key; });
+  d3.select("#an-table-body").selectAll("tr").data(rows, (d) => d.tag).join("tr")
+    .html((d) => `
+      <td><span class="cat-dot" style="background:${categoryColor(d.category)}"></span>${escapeHtml(d.tag)}</td>
+      <td class="num">${d.together}</td>
+      <td class="num">${pct(d.ofFocus)}</td>
+      <td class="num">${pct(d.ofTag)} <span class="small-note">(${d.together}/${d.tagTotal})</span></td>`);
+}
+
+function renderAnalysisPanel() {
+  renderCooccurrenceTable();
+  const res = state.analysis.result;
+  if (!res) return;
+  d3.select("#an-method-help").text(ANALYSIS_METHODS[res.method].help);
+  d3.select("#an-jaccard-row").classed("hidden", res.method !== "works");
+
+  const strength = res.modularity >= 0.3 ? "clear structure" : res.modularity >= 0.2 ? "moderate structure" : "weak structure";
+  const unitPlural = res.kind === "work" ? "works" : "hashtags";
+  d3.select("#an-modularity").html(`
+    <div class="an-q">
+      <div><span class="an-q-label">Modularity (Q)</span><span class="an-q-value">${res.modularity.toFixed(3)}</span></div>
+      <div class="an-q-meta">${strength} · ${res.clusters.length} clusters · ${res.nodes.length - res.unlinked.length} of ${res.nodes.length} ${unitPlural} linked${res.method === "works" ? ` (similarity ≥ ${res.jaccard.toFixed(2)})` : ""}
+        <br>${res.runs} runs (seeds 1–${res.runs}): Q ${res.qMin.toFixed(3)}–${res.qMax.toFixed(3)}; best shown (seed ${res.seed}).</div>
+    </div>`);
+
+  const focusNote = res.method === "whole"
+    ? res.clusters.find((c) => c.hasFocus)
+    : null;
+
+  const cards = res.clusters.map((c) => {
+    const tagsHtml = c.topTags.slice(0, res.kind === "work" ? 8 : 12).map((t) =>
+      `<span class="wc-tag${t.tag === res.focus ? " is-selected" : ""}" style="--tag-color:${categoryColor(state.metaByTag.get(t.tag)?.category)}">${escapeHtml(t.tag)} <span class="an-n">${t.n}</span></span>`).join("");
+    const more = res.kind !== "work" && c.topTags.length > 12 ? `<span class="small-note">+ ${c.topTags.length - 12} more</span>` : "";
+    const worksHtml = res.kind === "work"
+      ? `<div class="an-works">${c.members.map((id) => state.worksById.get(id)).sort((x, y) => workRank(x) - workRank(y))
+          .map((w) => `<button type="button" class="an-work" data-id="${escapeHtml(w.work_id)}">#${escapeHtml(w.rank)} ${escapeHtml(w.title)}</button>`).join("")}</div>`
+      : "";
+    return `
+      <details class="an-cluster" ${c.index < 4 ? "open" : ""}>
+        <summary><span class="cmp-dot" style="background:${clusterColor(c.index)}"></span>
+          <span>Cluster ${c.index + 1}${c.hasFocus ? ` · contains ${escapeHtml(res.focus)}` : ""}</span>
+          <span class="cmp-count">${c.members.length} ${unitPlural}</span></summary>
+        <div class="an-cluster-body">
+          <div class="an-sub">${res.kind === "work" ? "Most common hashtags" : "Hashtags (by frequency)"}</div>
+          <div class="wc-tags">${tagsHtml}${more}</div>
+          ${worksHtml}
+        </div>
+      </details>`;
+  }).join("");
+  const unlinked = res.unlinked.length
+    ? `<p class="small-note">${res.unlinked.length} ${unitPlural} have no links at this setting and are left out of the clusters (white on the map).</p>`
+    : "";
+  d3.select("#an-clusters").html(cards + unlinked);
+  d3.select("#an-clusters").selectAll("button.an-work").on("click", function () { openWorkCard(this.dataset.id); });
+}
+
+function csvEscape(v) {
+  const s = String(v ?? "");
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function downloadCSV(filename, rows) {
+  // BOM so Excel opens Korean text correctly.
+  const text = "﻿" + rows.map((r) => r.map(csvEscape).join(",")).join("\r\n");
+  const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function downloadCooccurrenceCSV() {
+  const { rows, focusCount, total } = cooccurrenceRows();
+  rows.sort((x, y) => y.together - x.together || x.tag.localeCompare(y.tag, "ko"));
+  const f = state.analysis.focus;
+  downloadCSV(`cooccurrence_${f}.csv`, [
+    ["focus_tag", "focus_works", "total_works", "tag", "category", "works_together",
+      "share_of_focus_works", "tag_total_works", "share_of_tag_works_with_focus"],
+    ...rows.map((r) => [f, focusCount, total, r.tag, r.category, r.together,
+      r.ofFocus.toFixed(4), r.tagTotal, r.ofTag.toFixed(4)])
+  ]);
+}
+
+function downloadClustersCSV() {
+  const res = state.analysis.result;
+  if (!res) return;
+  const header = ["method", "focus_tag", "modularity_best", "modularity_min", "modularity_max", "seed",
+    "jaccard_threshold", "romance_counted", "cluster", "item_type", "id", "title_or_tag", "rank", "degree"];
+  const out = [header];
+  const meta = [ANALYSIS_METHODS[res.method].label, res.focus, res.modularity.toFixed(4), res.qMin.toFixed(4),
+    res.qMax.toFixed(4), res.seed, res.method === "works" ? res.jaccard : "", res.includeRomance ? "yes" : "no"];
+  const row = (cluster, id) => {
+    if (res.kind === "work") {
+      const w = state.worksById.get(id) || {};
+      return [...meta, cluster, "work", id, w.title || "", w.rank || "", res.degree.get(id)];
+    }
+    return [...meta, cluster, "tag", id, id, "", res.degree.get(id)];
+  };
+  res.clusters.forEach((c) => c.members.forEach((id) => out.push(row(c.index + 1, id))));
+  res.unlinked.forEach((id) => out.push(row("unlinked", id)));
+  downloadCSV(`clusters_${res.method}_${res.focus}.csv`, out);
+}
+
 function buildGraph() {
   const allTags = Array.from(state.frequencyByTag.keys());
 
@@ -1267,12 +1751,15 @@ function drawNetwork(graph) {
   }
 
   const isCompare = graph.mode === "comparison";
+  const isClusters = graph.mode === "clusters";
+  // Work-node maps (work network, or works grouped into clusters).
+  const workNet = graph.mode === "worknet" || (isClusters && graph.kind === "work");
 
   const simulation = d3.forceSimulation(nodes)
   .force("link", (() => {
     const force = d3.forceLink(links).id((d) => d.id).distance((d) => {
       if (graph.mode === "works") return 145;
-      if (graph.mode === "worknet") return 40 + (1 - d.weight) * 160;
+      if (workNet) return 40 + (1 - d.weight) * 160;
       if (isCompare) return 120;
       return 150;
     });
@@ -1284,11 +1771,12 @@ function drawNetwork(graph) {
   })())
   .force("charge", d3.forceManyBody().strength((d) => {
     if (graph.mode === "works") return d.type === "work" ? -75 : -450;
-    if (graph.mode === "worknet") return -250;
+    if (workNet) return -250;
     if (isCompare) return d.comparisonGroup === "anchor" ? -600 : -200;
+    if (isClusters) return -260;
     return -380;
   }))
-  .force("collision", d3.forceCollide().radius((d) => nodeRadius(d) + (isCompare ? 9 : graph.mode === "worknet" ? 14 : 10)));
+  .force("collision", d3.forceCollide().radius((d) => nodeRadius(d) + (isCompare ? 9 : workNet ? 14 : 10)));
 
   // Keep every node inside the visible map area.
   simulation.force("bounds", () => {
@@ -1300,7 +1788,20 @@ function drawNetwork(graph) {
     }
   });
 
-  if (isCompare) {
+  if (isClusters) {
+    const k = Math.max(1, graph.clusterCount);
+    const cx = width / 2;
+    const cy = height / 2;
+    const target = (c) => {
+      if (c == null || c < 0) return { x: cx, y: cy };
+      const ang = -Math.PI / 2 + (2 * Math.PI * c) / k;
+      return { x: cx + Math.cos(ang) * width * 0.24, y: cy + Math.sin(ang) * height * 0.24 };
+    };
+    simulation
+      .force("center", null)
+      .force("x", d3.forceX((d) => target(d.cluster).x).strength((d) => (d.cluster < 0 ? 0.02 : 0.09)))
+      .force("y", d3.forceY((d) => target(d.cluster).y).strength((d) => (d.cluster < 0 ? 0.02 : 0.09)));
+  } else if (isCompare) {
     simulation
       // Anchors hold their slots; everything else only gets a light nudge
       // toward its region and is otherwise free, like the main network.
@@ -1310,8 +1811,8 @@ function drawNetwork(graph) {
     simulation
       .force("center", d3.forceCenter(width / 2, height / 2))
       // Gentle pull toward the middle keeps the spread-out layout on screen.
-      .force("x", d3.forceX(width / 2).strength(graph.mode === "works" ? 0 : graph.mode === "worknet" ? 0.12 : 0.06))
-      .force("y", d3.forceY(height / 2).strength(graph.mode === "works" ? 0 : graph.mode === "worknet" ? 0.16 : 0.08));
+      .force("x", d3.forceX(width / 2).strength(graph.mode === "works" ? 0 : workNet ? 0.12 : 0.06))
+      .force("y", d3.forceY(height / 2).strength(graph.mode === "works" ? 0 : workNet ? 0.16 : 0.08));
   }
 
   const link = graphLayer.append("g")
@@ -1321,7 +1822,7 @@ function drawNetwork(graph) {
     .join("line")
     .attr("class", "link")
     .attr("stroke", (d) => {
-      if (graph.mode === "works" || graph.mode === "worknet") return "#9c9692";
+      if (graph.mode === "works" || workNet || isClusters) return "#9c9692";
       if (isCompare) {
         const s = getLinkName(d.source);
         const t = getLinkName(d.target);
@@ -1329,18 +1830,21 @@ function drawNetwork(graph) {
       }
       return "#999";
     })
-    .attr("stroke-opacity", isCompare ? 0.32 : graph.mode === "worknet" ? 0.4 : 0.45)
+    .attr("stroke-opacity", (d) => {
+      if (isClusters && !workNet) return Math.min(0.5, 0.06 + d.weight * 0.04);
+      return isCompare ? 0.32 : workNet ? 0.4 : 0.45;
+    })
     .attr("stroke-width", (d) => {
       if (graph.mode === "works") return 1.2;
-      if (graph.mode === "worknet") return 0.6 + d.weight * 7;
+      if (workNet) return 0.6 + d.weight * 7;
       if (graph.mode === "comparison") return graph.lens === "work" ? 1 : 0.6 + Math.sqrt(d.weight) * 0.6;
       return Math.sqrt(d.weight);
     })
     .on("click", function (event, d) {
       event.stopPropagation();
       if (graph.mode === "works") return;
-      if (graph.mode === "worknet") showWorkEdgeInspector(d);
-      else if (graph.lens !== "work") showEdgeInspector(d);
+      if (workNet) showWorkEdgeInspector(d);
+      else if (graph.lens !== "work") showEdgeInspector(d, isClusters && state.analysis.method === "tags" ? state.analysis.focus : null);
     });
 
   let regionLabels = null;
@@ -1372,7 +1876,7 @@ function drawNetwork(graph) {
   .on("mouseenter", function (event, d) {
     // Work nodes: hover shows the title label only.
     if (d.type === "work") {
-      if (graph.mode === "worknet") {
+      if (workNet) {
         d3.select(this).raise().select("text").text(d.label).classed("is-hovered", true);
       } else {
         d3.select(this).select("text").style("display", null);
@@ -1396,7 +1900,7 @@ function drawNetwork(graph) {
   })
   .on("mouseleave", function (event, d) {
     if (d.type === "work" && graph.mode === "works") d3.select(this).select("text").style("display", "none");
-    if (d.type === "work" && graph.mode === "worknet") d3.select(this).select("text").text(d.shortLabel).classed("is-hovered", false);
+    if (d.type === "work" && workNet) d3.select(this).select("text").text(d.shortLabel).classed("is-hovered", false);
     hideNodeTooltip();
   })
   .on("dblclick", function (event, d) {
@@ -1418,13 +1922,13 @@ function drawNetwork(graph) {
   }
   
   node.append("text")
-    .text((d) => graph.mode === "worknet" ? d.shortLabel : d.label)
+    .text((d) => workNet ? d.shortLabel : d.label)
     .style("display", (d) => d.type === "work" && graph.mode === "works" ? "none" : null)
     .attr("class", "node-label")
     .attr("x", (d) => circleRadius(d) + 4)
     .attr("y", 4)
     .attr("font-size", (d) => {
-      if (graph.mode === "worknet") return "11px";
+      if (workNet) return "11px";
       if (d.type === "work" && !isCompareAnchor(d.id)) return "12px";
       return "13.5px";
     })
@@ -1610,6 +2114,10 @@ function renderNodePie(nodeSel, d) {
 function nodeStroke(d) {
   if (currentPins().has(d.id)) return "#111111";
   const graph = state.currentGraph;
+  if (graph && graph.mode === "clusters") {
+    if (d.id === state.analysis.focus) return "#111111";
+    return d.cluster < 0 || graph.kind === "work" ? "#8a817c" : "#ffffff";
+  }
   if (graph && graph.mode === "worknet") {
     if (isCompareAnchor(d.id)) return "#111111";
     return "#8a817c";
@@ -1621,12 +2129,15 @@ function nodeStroke(d) {
 function nodeStrokeWidth(d) {
   if (currentPins().has(d.id) || isCompareAnchor(d.id)) return 3;
   const graph = state.currentGraph;
+  if (graph && graph.mode === "clusters") return d.id === state.analysis.focus ? 3.5 : graph.kind === "work" ? 1.1 : 1.5;
   if (graph && graph.mode === "worknet") return 1.1;
   return 1.5;
 }
 
 function nodeColor(d) {
   const graph = state.currentGraph;
+
+  if (graph && graph.mode === "clusters") return clusterColor(d.cluster);
 
   if (graph && graph.mode === "worknet") {
     const hits = highlightMatches(d);
@@ -1901,10 +2412,12 @@ function showNodeInspector(node) {
   `);
 }
 
-function showEdgeInspector(edge) {
+function showEdgeInspector(edge, withinTag = null) {
   const source = getLinkName(edge.source);
   const target = getLinkName(edge.target);
-  const works = getWorksForPair(source, target).slice(0, 10);
+  const works = getWorksForPair(source, target)
+    .filter((w) => !withinTag || (state.tagsByWork.get(w.work_id) || new Set()).has(withinTag))
+    .slice(0, 10);
 
   d3.select("#inspector").html(`
     <strong>${source} ↔ ${target}</strong><br>

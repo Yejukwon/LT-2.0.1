@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Romance Fantasy Hashtag Network</title>
-  <link rel="stylesheet" href="css/style.css?v=10">
+  <link rel="stylesheet" href="css/style.css?v=11">
 </head>
 
 <body>
@@ -34,6 +34,7 @@
           <button type="button" data-mode="full">Network</button>
           <button type="button" data-mode="comparison">Compare</button>
           <button type="button" data-mode="works">Find works</button>
+          <button type="button" data-mode="analysis">Analysis</button>
         </div>
         <p id="mode-help" class="small-note mode-help"></p>
         <p id="data-status" class="data-status">Loading data...</p>
@@ -130,6 +131,73 @@
         </div>
 
       </details>
+
+      <!-- Hashtag lens: Analysis -->
+      <section class="panel-section" data-modes="tag:analysis">
+        <h2>Focus Hashtag</h2>
+        <label>
+          Category
+          <select id="an-category"></select>
+        </label>
+        <label>
+          Tag
+          <select id="an-tag"></select>
+        </label>
+        <p id="an-focus-summary" class="small-note an-summary"></p>
+      </section>
+
+      <section class="panel-section" data-modes="tag:analysis">
+        <div class="an-heading">
+          <h2>① Paired Hashtags</h2>
+          <button id="an-download-table" type="button" class="an-download">CSV</button>
+        </div>
+        <p class="small-note">How often each hashtag appears on the same work as the focus tag.
+          <strong>Together</strong> = number of works with both.
+          <strong>% of focus</strong> = share of the focus tag's works that also have it.
+          <strong>% of tag</strong> = share of that hashtag's own works that also have the focus tag
+          (high means it is almost always paired with the focus tag). Click a column to sort.</p>
+        <div class="an-table-wrap">
+          <table class="an-table">
+            <thead id="an-table-head">
+              <tr>
+                <th>Hashtag</th>
+                <th data-sort="together" class="num">Together</th>
+                <th data-sort="ofFocus" class="num">% of focus</th>
+                <th data-sort="ofTag" class="num">% of tag</th>
+              </tr>
+            </thead>
+            <tbody id="an-table-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel-section" data-modes="tag:analysis">
+        <div class="an-heading">
+          <h2>② Clusters</h2>
+          <button id="an-download-clusters" type="button" class="an-download">CSV</button>
+        </div>
+        <label>
+          Method
+          <select id="an-method"></select>
+        </label>
+        <p id="an-method-help" class="small-note an-method-help"></p>
+        <label class="slider-label" id="an-jaccard-row">
+          Minimum similarity between works:
+          <span id="an-jaccard-value">0.20</span>
+          <input id="an-jaccard" type="range" min="0.05" max="0.5" step="0.01" value="0.2">
+        </label>
+        <label class="checkbox-row">
+          <input type="checkbox" id="an-romance"> Count 로맨스판타지
+        </label>
+        <div id="an-modularity"></div>
+        <p class="small-note">Clusters are found with the Louvain method. <strong>Modularity</strong> shows how cleanly
+          the network splits: higher means links are dense inside clusters and sparse between them
+          (around 0.3 or more is usually read as clear structure). Louvain can land on slightly
+          different answers each run, so it is run 10 times and the range is shown.
+          Raising the minimum similarity drops weaker links and leaves out more works, which pushes Q up,
+          so only compare Q values found at the same setting.</p>
+        <div id="an-clusters"></div>
+      </section>
 
       <!-- Work lens: Network -->
       <section class="panel-section" data-modes="work:full">
@@ -257,6 +325,14 @@
       </div>
 
       <div>
+        <h3>Analysis</h3>
+        <p>
+          Pick any hashtag as the focus. ① lists the hashtags it is paired with; ② groups works
+          or hashtags into clusters (Louvain) and reports modularity. Both can be downloaded as CSV.
+        </p>
+      </div>
+
+      <div>
         <h3>Read the edges</h3>
         <p>
           An edge means that two hashtags appear in the same work. A thicker edge means that the
@@ -268,6 +344,6 @@
 </div>
   
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-  <script src="js/app.js?v=10"></script>
+  <script src="js/app.js?v=11"></script>
 </body>
 </html>
