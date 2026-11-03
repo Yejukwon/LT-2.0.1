@@ -1197,14 +1197,17 @@ const CLUSTER_PALETTE = ["#d1495b", "#2e86ab", "#e09f3e", "#5b8e3e", "#8e5ea2", 
 const ANALYSIS_METHODS = {
   works: {
     label: "Works with this tag",
+    question: (f) => `What different kinds of “${f}” stories are there?`,
     help: "Takes only the works that carry the focus tag and groups them by how similar their other hashtags are (Jaccard). Each cluster is a group of works, e.g. one kind of story the tag covers."
   },
   tags: {
     label: "Tags around this tag",
+    question: (f) => `Which groups of hashtags travel together around “${f}”?`,
     help: "Takes only the works that carry the focus tag and groups the other hashtags that tend to appear together in them. The focus tag itself is left out."
   },
   whole: {
     label: "Whole hashtag network",
+    question: (f) => `Where does “${f}” sit in the hashtag landscape as a whole?`,
     help: "Splits the entire hashtag network (all works) into clusters and shows which one the focus tag falls into. Useful as a comparison with the two views above."
   }
 };
@@ -1380,8 +1383,72 @@ function runAnalysis() {
     kind, nodes, edges, degree, clusterOf, clusters, unlinked, freqWithin,
     modularity: r.modularity, qMin: batch.qMin, qMax: batch.qMax, runs: batch.runs, seed: r.seed,
     bestSeed: batch.seed, singleRun: !!single,
-    changed: prev ? nodes.filter((n) => (clusterOf.get(n) ?? -1) >= 0 && (prev.get(n) ?? -1) >= 0 && clusterOf.get(n) !== prev.get(n)).length : null,
+    changed: prev ? compareToPrevious(nodes, prev, clusterOf) : null,
     method: a.method, focus: a.focus, jaccard: a.jaccard, hidden: Array.from(a.hidden).filter((t) => t !== a.focus)
+  };
+}
+
+// Normalised mutual information between two partitions (1 = identical
+// grouping, 0 = unrelated). Arithmetic-mean normalisation, as in scikit-learn.
+function renderChangeSummary(res, unitPlural) {
+  const c = res.changed;
+  const name = (id) => {
+    if (res.kind !== "work") return escapeHtml(id);
+    const w = state.worksById.get(id) || {};
+    return `#${escapeHtml(w.rank)} ${escapeHtml(w.title || id)}`;
+  };
+  const dot = (i) => `<span class="cmp-dot" style="background:${clusterColor(i)}"></span>`;
+  if (!c.count) {
+    return `<div class="an-change"><div class="an-change-head">Change from the previous result</div>
+      <div>Same clusters as before · NMI 1.00</div></div>`;
+  }
+  const list = c.moved
+    .sort((x, y) => x.from - y.from || x.to - y.to)
+    .map((m) => `<li>${name(m.id)} <span class="an-move">${dot(m.from)}${m.from + 1} → ${dot(m.to)}${m.to + 1}</span></li>`).join("");
+  return `<div class="an-change">
+      <div class="an-change-head">Change from the previous result</div>
+      <div class="an-change-stats">
+        <div><span class="an-change-big">${c.count}</span> of ${c.total} ${unitPlural} moved <strong>(${Math.round(c.share * 100)}%)</strong></div>
+        <div>NMI <strong>${c.nmi.toFixed(2)}</strong> <span class="small-note">(similarity of the two groupings: 1 = identical, 0 = unrelated)</span></div>
+      </div>
+      <details class="an-moved"><summary>Show what moved</summary><ul>${list}</ul></details>
+    </div>`;
+}
+
+function partitionNMI(items, a, b) {
+  const n = items.length;
+  if (!n) return 1;
+  const ca = new Map(), cb = new Map(), joint = new Map();
+  for (const it of items) {
+    const x = a.get(it), y = b.get(it);
+    ca.set(x, (ca.get(x) || 0) + 1);
+    cb.set(y, (cb.get(y) || 0) + 1);
+    const k = x + "|" + y;
+    joint.set(k, (joint.get(k) || 0) + 1);
+  }
+  const H = (m) => { let h = 0; for (const v of m.values()) { const p = v / n; h -= p * Math.log(p); } return h; };
+  let I = 0;
+  for (const [k, v] of joint) {
+    const [x, y] = k.split("|");
+    const pxy = v / n;
+    I += pxy * Math.log(pxy / ((ca.get(+x) / n) * (cb.get(+y) / n)));
+  }
+  const ha = H(ca), hb = H(cb);
+  if (ha === 0 && hb === 0) return 1;
+  return (2 * I) / (ha + hb);
+}
+
+// How the new result differs from the previous one (items linked in both).
+function compareToPrevious(nodes, prev, next) {
+  const items = nodes.filter((n) => (prev.get(n) ?? -1) >= 0 && (next.get(n) ?? -1) >= 0);
+  const moved = items.filter((n) => prev.get(n) !== next.get(n))
+    .map((id) => ({ id, from: prev.get(id), to: next.get(id) }));
+  return {
+    count: moved.length,
+    total: items.length,
+    share: items.length ? moved.length / items.length : 0,
+    nmi: partitionNMI(items, prev, next),
+    moved
   };
 }
 
@@ -1475,6 +1542,12 @@ function setupAnalysisControls() {
   d3.select("#an-jaccard").on("input", function () {
     state.analysis.jaccard = +this.value;
     d3.select("#an-jaccard-value").text(state.analysis.jaccard.toFixed(2));
+    updateNetwork();
+  });
+  d3.select("#an-jaccard-reset").on("click", () => {
+    state.analysis.jaccard = 0.2;
+    d3.select("#an-jaccard").property("value", 0.2);
+    d3.select("#an-jaccard-value").text("0.20");
     updateNetwork();
   });
   // Hide hashtags from both ① and ②
@@ -1625,7 +1698,9 @@ function renderAnalysisPanel() {
   }
   renderCategoryToggles("#an-cluster-cats", clusterCats,
     new Map(Array.from(seen, ([k, v]) => [k, v.size])), renderAnalysisPanel);
-  d3.select("#an-method-help").text(ANALYSIS_METHODS[res.method].help);
+  const m = ANALYSIS_METHODS[res.method];
+  d3.select("#an-method-help").html(
+    `<span class="an-question">Q. ${escapeHtml(m.question(res.focus))}</span>${escapeHtml(m.help)}`);
   d3.select("#an-jaccard-row").classed("hidden", res.method !== "works");
 
   const strength = res.modularity >= 0.3 ? "clear structure" : res.modularity >= 0.2 ? "moderate structure" : "weak structure";
@@ -1637,9 +1712,8 @@ function renderAnalysisPanel() {
         <br>${res.singleRun
           ? `<strong>Single run · seed ${res.seed}.</strong> For reference, ${res.runs} runs (seeds 1–${res.runs}) give Q ${res.qMin.toFixed(3)}–${res.qMax.toFixed(3)}.`
           : `<strong>Best of ${res.runs} runs</strong> (seeds 1–${res.runs}, best = seed ${res.bestSeed}); Q ranges ${res.qMin.toFixed(3)}–${res.qMax.toFixed(3)}.`}
-        ${res.changed != null
-          ? `<br><span class="an-changed">${res.changed ? `${res.changed} ${unitPlural} changed cluster compared with the previous result.` : "Same clusters as the previous result."}</span>`
-          : ""}</div>
+        </div>
+      ${res.changed ? renderChangeSummary(res, unitPlural) : ""}
       <div class="an-run-buttons">
         <button type="button" id="an-rerun">↻ Re-run</button>
         <button type="button" id="an-best" ${res.singleRun ? "" : "disabled"}>Best of ${res.runs}</button>

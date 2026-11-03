@@ -1494,3 +1494,20 @@ body[data-lang="en"] .lang-en {
 .an-more { width: auto; padding: 2px 9px; border: 1px solid #d6cfcb; border-radius: 10px; background: #fff; font-size: 11.5px; font-weight: 600; color: #6b625e; }
 .an-more:hover { background: #f3efec; }
 .an-cats-label { margin-top: 14px; text-transform: none; letter-spacing: 0; font-size: 12px; }
+
+/* Analysis: guiding question, threshold, change summary */
+.an-question { display: block; margin-bottom: 5px; font-weight: 700; color: #2b2624; font-size: 13px; }
+.an-threshold { margin: 4px 0 10px; padding: 10px 12px; border: 1px solid #e6e1dd; border-radius: 8px; }
+.an-threshold.hidden { display: none; }
+.an-threshold-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+.an-threshold-head button { width: auto; padding: 3px 9px; font-size: 11.5px; font-weight: 500; border-radius: 4px; }
+.an-threshold input[type="range"] { width: 100%; margin: 8px 0 4px; }
+.an-threshold .small-note { margin: 2px 0 0; }
+.an-change { margin-top: 10px; padding-top: 10px; border-top: 1px dashed #e0d9d5; font-size: 12.5px; }
+.an-change-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #8c736a; margin-bottom: 4px; font-weight: 600; }
+.an-change-stats { display: grid; gap: 3px; }
+.an-change-big { font-size: 18px; font-weight: 700; color: #2b2624; }
+.an-moved summary { cursor: pointer; margin-top: 6px; font-size: 12px; color: #6b625e; }
+.an-moved ul { margin: 6px 0 0; padding-left: 18px; max-height: 180px; overflow-y: auto; line-height: 1.6; }
+.an-move { white-space: nowrap; color: #6b625e; margin-left: 4px; }
+.an-move .cmp-dot { width: 8px; height: 8px; flex-basis: 8px; margin: 0 2px; vertical-align: middle; }
