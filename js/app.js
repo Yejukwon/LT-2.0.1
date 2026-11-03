@@ -28,7 +28,8 @@ const state = {
   // Analysis tab (hashtag lens)
   // hidden: hashtags left out of both ① and ② (로맨스판타지 by default)
   analysis: { focus: "능력녀", method: "works", jaccard: 0.2, hidden: new Set(["로맨스판타지"]), result: null, sort: "together",
-    runSeed: null, nextSeed: 11, align: false, tableCats: null },
+    runSeed: null, nextSeed: 11, align: false, tableCats: null,
+    clusterCats: null, expanded: new Set() },
   worksListVisible: true,
   currentGraph: null
 };
@@ -1366,7 +1367,7 @@ function runAnalysis() {
         if (t === a.focus || isHidden(t)) continue;
         counts.set(t, (counts.get(t) || 0) + 1);
       }
-      topTags = Array.from(counts).sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0], "ko")).slice(0, 8)
+      topTags = Array.from(counts).sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0], "ko"))
         .map(([t, n]) => ({ tag: t, n }));
     } else {
       topTags = members.slice().sort((x, y) => (freqWithin.get(y) || 0) - (freqWithin.get(x) || 0))
@@ -1385,6 +1386,7 @@ function runAnalysis() {
 }
 
 function buildAnalysisGraph() {
+  state.analysis.expanded.clear();
   state.analysis.runSeed = null;
   state.analysis.align = false;
   const res = runAnalysis();
@@ -1405,6 +1407,20 @@ function buildAnalysisGraph() {
   });
   const links = res.edges.map((e) => ({ ...e }));
   return { mode: "clusters", kind: res.kind, nodes, links, clusterCount: res.clusters.length };
+}
+
+// Display-only: hide hashtag nodes of switched-off categories on the cluster map.
+function applyClusterCategoryVisibility() {
+  const g = state.currentGraph;
+  if (!g || g.mode !== "clusters") return;
+  const on = analysisClusterCategories();
+  const hiddenTag = (id) => {
+    if (g.kind === "work" || id === state.analysis.focus) return false;
+    return !on.has(state.metaByTag.get(id)?.category || "unknown");
+  };
+  graphLayer.selectAll("g.node").style("display", (d) => (d.type === "tag" && hiddenTag(d.id) ? "none" : null));
+  graphLayer.selectAll("line.link").style("display", (d) =>
+    hiddenTag(getLinkName(d.source)) || hiddenTag(getLinkName(d.target)) ? "none" : null);
 }
 
 function rerunAnalysis(seed) {
@@ -1541,11 +1557,22 @@ function analysisTableCategories() {
 }
 
 function renderTableCategoryToggles(allRows) {
-  const box = d3.select("#an-table-cats");
+  renderCategoryToggles("#an-table-cats", analysisTableCategories(),
+    d3.rollup(allRows, (v) => v.length, (r) => r.category), renderCooccurrenceTable);
+}
+
+function analysisClusterCategories() {
+  if (!state.analysis.clusterCats) {
+    state.analysis.clusterCats = new Set(state.metadata.map((d) => d.category));
+  }
+  return state.analysis.clusterCats;
+}
+
+// A row of category checkboxes with counts; onChange re-renders the view.
+function renderCategoryToggles(selector, on, counts, onChange) {
+  const box = d3.select(selector);
   if (box.empty()) return;
   const cats = Array.from(new Set(state.metadata.map((d) => d.category))).sort();
-  const on = analysisTableCategories();
-  const counts = d3.rollup(allRows, (v) => v.length, (r) => r.category);
   const labels = box.selectAll("label").data(cats, (d) => d).join((enter) => {
     const l = enter.append("label").attr("class", "an-cat-toggle");
     l.append("input").attr("type", "checkbox");
@@ -1555,7 +1582,7 @@ function renderTableCategoryToggles(allRows) {
   });
   labels.select("input").property("checked", (d) => on.has(d)).on("change", function (event, d) {
     if (this.checked) on.add(d); else on.delete(d);
-    renderCooccurrenceTable();
+    onChange();
   });
   labels.select(".cat-dot").style("background", (d) => categoryColor(d));
   labels.select(".an-cat-name").text((d) => `${formatCategory(d)} (${counts.get(d) || 0})`);
@@ -1588,6 +1615,16 @@ function renderAnalysisPanel() {
   renderCooccurrenceTable();
   const res = state.analysis.result;
   if (!res) return;
+  const clusterCats = analysisClusterCategories();
+  // counts: hashtags of each category that appear in the cluster cards
+  const seen = new Map();
+  for (const c of res.clusters) for (const t of c.topTags) {
+    const cat = state.metaByTag.get(t.tag)?.category || "unknown";
+    if (!seen.has(cat)) seen.set(cat, new Set());
+    seen.get(cat).add(t.tag);
+  }
+  renderCategoryToggles("#an-cluster-cats", clusterCats,
+    new Map(Array.from(seen, ([k, v]) => [k, v.size])), renderAnalysisPanel);
   d3.select("#an-method-help").text(ANALYSIS_METHODS[res.method].help);
   d3.select("#an-jaccard-row").classed("hidden", res.method !== "works");
 
@@ -1619,9 +1656,14 @@ function renderAnalysisPanel() {
     : null;
 
   const cards = res.clusters.map((c) => {
-    const tagsHtml = c.topTags.slice(0, res.kind === "work" ? 8 : 12).map((t) =>
+    const visibleTags = c.topTags.filter((t) => t.tag === res.focus || clusterCats.has(state.metaByTag.get(t.tag)?.category || "unknown"));
+    const limit = res.kind === "work" ? 8 : 12;
+    const open = state.analysis.expanded.has(c.index);
+    const tagsHtml = (open ? visibleTags : visibleTags.slice(0, limit)).map((t) =>
       `<span class="wc-tag${t.tag === res.focus ? " is-selected" : ""}" style="--tag-color:${categoryColor(state.metaByTag.get(t.tag)?.category)}">${escapeHtml(t.tag)} <span class="an-n">${t.n}</span></span>`).join("");
-    const more = res.kind !== "work" && c.topTags.length > 12 ? `<span class="small-note">+ ${c.topTags.length - 12} more</span>` : "";
+    const more = visibleTags.length > limit
+      ? `<button type="button" class="an-more" data-i="${c.index}">${open ? "Show less" : `+ ${visibleTags.length - limit} more`}</button>`
+      : (visibleTags.length ? "" : `<span class="small-note">No hashtags in the shown categories.</span>`);
     const worksHtml = res.kind === "work"
       ? `<div class="an-works">${c.members.map((id) => state.worksById.get(id)).sort((x, y) => workRank(x) - workRank(y))
           .map((w) => `<button type="button" class="an-work" data-id="${escapeHtml(w.work_id)}">#${escapeHtml(w.rank)} ${escapeHtml(w.title)}</button>`).join("")}</div>`
@@ -1643,6 +1685,13 @@ function renderAnalysisPanel() {
     : "";
   d3.select("#an-clusters").html(cards + unlinked);
   d3.select("#an-clusters").selectAll("button.an-work").on("click", function () { openWorkCard(this.dataset.id); });
+  d3.select("#an-clusters").selectAll("button.an-more").on("click", function () {
+    const i = +this.dataset.i;
+    if (state.analysis.expanded.has(i)) state.analysis.expanded.delete(i);
+    else state.analysis.expanded.add(i);
+    renderAnalysisPanel();
+  });
+  applyClusterCategoryVisibility();
 }
 
 function csvEscape(v) {
