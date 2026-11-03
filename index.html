@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Romance Fantasy Hashtag Network</title>
-  <link rel="stylesheet" href="css/style.css?v=11">
+  <link rel="stylesheet" href="css/style.css?v=12">
 </head>
 
 <body>
@@ -135,15 +135,34 @@
       <!-- Hashtag lens: Analysis -->
       <section class="panel-section" data-modes="tag:analysis">
         <h2>Focus Hashtag</h2>
+        <div id="an-focus-current" class="an-focus-current"></div>
         <label>
           Category
           <select id="an-category"></select>
         </label>
-        <label>
-          Tag
+        <label>Tag</label>
+        <div class="works-add-row">
           <select id="an-tag"></select>
-        </label>
+          <button id="an-set-focus" type="button">Set focus</button>
+        </div>
         <p id="an-focus-summary" class="small-note an-summary"></p>
+
+        <div class="filter-block">
+          <h3>Hide Hashtags</h3>
+          <p class="small-note">Hidden hashtags are left out of both ① and ② (the table and the clusters).
+            로맨스판타지 is hidden by default because it is on almost every work.</p>
+          <label>
+            Category
+            <select id="an-hide-category"></select>
+          </label>
+          <label>Tag</label>
+          <div class="works-add-row">
+            <select id="an-hide-tag"></select>
+            <button id="an-hide-add" type="button">+ Hide</button>
+          </div>
+          <div id="an-hidden-chips" class="tag-chip-area"></div>
+          <button id="an-hide-clear" type="button" class="secondary-button">Show all hashtags</button>
+        </div>
       </section>
 
       <section class="panel-section" data-modes="tag:analysis">
@@ -185,9 +204,6 @@
           Minimum similarity between works:
           <span id="an-jaccard-value">0.20</span>
           <input id="an-jaccard" type="range" min="0.05" max="0.5" step="0.01" value="0.2">
-        </label>
-        <label class="checkbox-row">
-          <input type="checkbox" id="an-romance"> Count 로맨스판타지
         </label>
         <div id="an-modularity"></div>
         <p class="small-note">Clusters are found with the Louvain method. <strong>Modularity</strong> shows how cleanly
@@ -344,6 +360,6 @@
 </div>
   
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-  <script src="js/app.js?v=11"></script>
+  <script src="js/app.js?v=12"></script>
 </body>
 </html>

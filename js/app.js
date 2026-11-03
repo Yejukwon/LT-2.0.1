@@ -26,7 +26,8 @@ const state = {
   highlightTags: new Map(), // tag -> colour, in the order they were picked
   compareWorks: new Set(),
   // Analysis tab (hashtag lens)
-  analysis: { focus: "능력녀", method: "works", jaccard: 0.2, includeRomance: false, result: null, sort: "together" },
+  // hidden: hashtags left out of both ① and ② (로맨스판타지 by default)
+  analysis: { focus: "능력녀", method: "works", jaccard: 0.2, hidden: new Set(["로맨스판타지"]), result: null, sort: "together" },
   worksListVisible: true,
   currentGraph: null
 };
@@ -1226,7 +1227,7 @@ function cooccurrenceRows() {
   for (const w of all) for (const t of state.tagsByWork.get(w.work_id)) totals.set(t, (totals.get(t) || 0) + 1);
   const together = new Map();
   for (const w of focusWorks) for (const t of state.tagsByWork.get(w.work_id)) {
-    if (t !== focus) together.set(t, (together.get(t) || 0) + 1);
+    if (t !== focus && !state.analysis.hidden.has(t)) together.set(t, (together.get(t) || 0) + 1);
   }
   return {
     focusCount: fx,
@@ -1245,9 +1246,10 @@ function cooccurrenceRows() {
 // ② Build the network for the chosen method and run Louvain on it.
 function runAnalysis() {
   const a = state.analysis;
+  const isHidden = (t) => t !== a.focus && a.hidden.has(t);
   const dropRomance = (set) => {
     const out = new Set(set);
-    if (!a.includeRomance) out.delete(ROMANCE_TAG);
+    for (const t of set) if (isHidden(t)) out.delete(t);
     return out;
   };
   let nodes = [];
@@ -1322,7 +1324,7 @@ function runAnalysis() {
     if (kind === "work") {
       const counts = new Map();
       for (const id of members) for (const t of state.tagsByWork.get(id)) {
-        if (t === a.focus || (!a.includeRomance && t === ROMANCE_TAG)) continue;
+        if (t === a.focus || isHidden(t)) continue;
         counts.set(t, (counts.get(t) || 0) + 1);
       }
       topTags = Array.from(counts).sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0], "ko")).slice(0, 8)
@@ -1337,7 +1339,7 @@ function runAnalysis() {
   return {
     kind, nodes, edges, degree, clusterOf, clusters, unlinked, freqWithin,
     modularity: r.modularity, qMin: r.qMin, qMax: r.qMax, runs: r.runs, seed: r.seed,
-    method: a.method, focus: a.focus, jaccard: a.jaccard, includeRomance: a.includeRomance
+    method: a.method, focus: a.focus, jaccard: a.jaccard, hidden: Array.from(a.hidden).filter((t) => t !== a.focus)
   };
 }
 
@@ -1369,11 +1371,15 @@ function setupAnalysisControls() {
     .attr("value", (d) => d).text((d) => formatCategory(d));
   const focusCat = state.metaByTag.get(state.analysis.focus)?.category;
   if (focusCat) d3.select("#an-category").property("value", focusCat);
-  d3.select("#an-category").on("change", () => {
-    updateAnalysisTagDropdown(true);
-  });
-  d3.select("#an-tag").on("change", function () {
-    state.analysis.focus = this.value;
+  // Changing the category only refreshes the tag list; the focus changes
+  // when "Set focus" is pressed.
+  d3.select("#an-category").on("change", () => updateAnalysisTagDropdown());
+  d3.select("#an-set-focus").on("click", () => {
+    const tag = d3.select("#an-tag").property("value");
+    if (!tag || tag === state.analysis.focus) return;
+    state.analysis.focus = tag;
+    state.analysis.hidden.delete(tag); // the focus tag cannot be hidden
+    updateAnalysisHideDropdown();
     updateNetwork();
   });
 
@@ -1388,10 +1394,23 @@ function setupAnalysisControls() {
     d3.select("#an-jaccard-value").text(state.analysis.jaccard.toFixed(2));
     updateNetwork();
   });
-  d3.select("#an-romance").on("change", function () {
-    state.analysis.includeRomance = this.checked;
+  // Hide hashtags from both ① and ②
+  d3.select("#an-hide-category").selectAll("option").data(categories).join("option")
+    .attr("value", (d) => d).text((d) => formatCategory(d));
+  d3.select("#an-hide-category").on("change", updateAnalysisHideDropdown);
+  d3.select("#an-hide-add").on("click", () => {
+    const t = d3.select("#an-hide-tag").property("value");
+    if (!t || t === state.analysis.focus) return;
+    state.analysis.hidden.add(t);
+    updateAnalysisHideDropdown();
     updateNetwork();
   });
+  d3.select("#an-hide-clear").on("click", () => {
+    state.analysis.hidden.clear();
+    updateAnalysisHideDropdown();
+    updateNetwork();
+  });
+  updateAnalysisHideDropdown();
   d3.select("#an-table-head").selectAll("th[data-sort]").on("click", function () {
     state.analysis.sort = this.dataset.sort;
     renderCooccurrenceTable();
@@ -1401,18 +1420,48 @@ function setupAnalysisControls() {
   updateAnalysisTagDropdown(false);
 }
 
-function updateAnalysisTagDropdown(pickFirst) {
+function updateAnalysisTagDropdown() {
   const cat = d3.select("#an-category").property("value");
   const tags = Array.from(state.frequencyByTag.keys())
     .filter((t) => (state.metaByTag.get(t)?.category || "unknown") === cat)
     .sort((x, y) => (state.frequencyByTag.get(y) - state.frequencyByTag.get(x)) || x.localeCompare(y, "ko"));
   d3.select("#an-tag").selectAll("option").data(tags).join("option")
     .attr("value", (d) => d).text((d) => `${d} (${state.frequencyByTag.get(d)})`);
-  if (pickFirst || !tags.includes(state.analysis.focus)) {
-    state.analysis.focus = tags[0];
-    if (state.viewMode === "analysis") updateNetwork();
+  if (tags.includes(state.analysis.focus)) d3.select("#an-tag").property("value", state.analysis.focus);
+}
+
+function updateAnalysisHideDropdown() {
+  const cat = d3.select("#an-hide-category").property("value");
+  const tags = Array.from(state.frequencyByTag.keys())
+    .filter((t) => (state.metaByTag.get(t)?.category || "unknown") === cat)
+    .filter((t) => t !== state.analysis.focus && !state.analysis.hidden.has(t))
+    .sort((x, y) => x.localeCompare(y, "ko"));
+  const options = tags.length ? tags : [""];
+  d3.select("#an-hide-tag").selectAll("option").data(options).join("option")
+    .attr("value", (d) => d).text((d) => d || "No more tags in this category");
+  d3.select("#an-hide-add").property("disabled", !tags.length);
+  renderAnalysisHiddenChips();
+}
+
+function renderAnalysisHiddenChips() {
+  const panel = d3.select("#an-hidden-chips");
+  if (panel.empty()) return;
+  const tags = Array.from(state.analysis.hidden).sort((x, y) => x.localeCompare(y, "ko"));
+  if (!tags.length) {
+    panel.selectAll("*").remove();
+    panel.text("Nothing hidden. Every hashtag is counted.");
+    return;
   }
-  d3.select("#an-tag").property("value", state.analysis.focus);
+  clearPlaceholderText(panel);
+  const chips = panel.selectAll("span.tag-chip").data(tags, (d) => d).join("span").attr("class", "tag-chip");
+  chips.html("");
+  chips.append("span").text((d) => d);
+  chips.append("button").attr("type", "button").attr("aria-label", (d) => `Show ${d}`).text("×")
+    .on("click", (event, t) => {
+      state.analysis.hidden.delete(t);
+      updateAnalysisHideDropdown();
+      updateNetwork();
+    });
 }
 
 function pct(x) { return `${Math.round(x * 100)}%`; }
@@ -1421,8 +1470,12 @@ function renderCooccurrenceTable() {
   const { rows, focusCount, total } = cooccurrenceRows();
   const key = state.analysis.sort;
   rows.sort((x, y) => (y[key] - x[key]) || (y.together - x.together) || x.tag.localeCompare(y.tag, "ko"));
+  const focusCat = state.metaByTag.get(state.analysis.focus)?.category;
+  d3.select("#an-focus-current").html(
+    `<span class="cat-dot" style="background:${categoryColor(focusCat)}"></span><span class="an-focus-label">Focus</span><strong>${escapeHtml(state.analysis.focus)}</strong>`);
   d3.select("#an-focus-summary").html(
-    `<strong>${escapeHtml(state.analysis.focus)}</strong> is on <strong>${focusCount}</strong> of ${total} works and appears with <strong>${rows.length}</strong> other hashtags.`);
+    `<strong>${escapeHtml(state.analysis.focus)}</strong> is on <strong>${focusCount}</strong> of ${total} works and appears with <strong>${rows.length}</strong> other hashtags` +
+    (state.analysis.hidden.size ? ` (${Array.from(state.analysis.hidden).filter((t) => t !== state.analysis.focus).length} hidden).` : "."));
   d3.select("#an-table-head").selectAll("th[data-sort]").classed("sorted", function () { return this.dataset.sort === key; });
   d3.select("#an-table-body").selectAll("tr").data(rows, (d) => d.tag).join("tr")
     .html((d) => `
@@ -1514,10 +1567,10 @@ function downloadClustersCSV() {
   const res = state.analysis.result;
   if (!res) return;
   const header = ["method", "focus_tag", "modularity_best", "modularity_min", "modularity_max", "seed",
-    "jaccard_threshold", "romance_counted", "cluster", "item_type", "id", "title_or_tag", "rank", "degree"];
+    "jaccard_threshold", "hidden_tags", "cluster", "item_type", "id", "title_or_tag", "rank", "degree"];
   const out = [header];
   const meta = [ANALYSIS_METHODS[res.method].label, res.focus, res.modularity.toFixed(4), res.qMin.toFixed(4),
-    res.qMax.toFixed(4), res.seed, res.method === "works" ? res.jaccard : "", res.includeRomance ? "yes" : "no"];
+    res.qMax.toFixed(4), res.seed, res.method === "works" ? res.jaccard : "", res.hidden.join("; ")];
   const row = (cluster, id) => {
     if (res.kind === "work") {
       const w = state.worksById.get(id) || {};
