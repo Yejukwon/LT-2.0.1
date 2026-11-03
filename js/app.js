@@ -13,10 +13,18 @@ const state = {
   compareTags: new Set(),
   worksTags: new Set(),
   worksMatchMode: "all",
-  // Pinned node positions, kept separately for each view mode so a pin made in
-  // Network does not distort the Compare or Works layouts (and vice versa).
-  pinsByMode: { full: new Map(), comparison: new Map(), works: new Map() },
+  // Pinned node positions, kept separately for each lens + view mode so a pin
+  // made in one layout does not distort another (keys like "tag:full").
+  pinsByMode: {},
+  // "tag" = hashtag-based network (Network / Compare / Find works)
+  // "work" = work-based network (Network / Compare)
+  lens: "tag",
   viewMode: "full",
+  // Work lens
+  minJaccard: 0.2,
+  includeRomance: false,
+  highlightTags: new Map(), // tag -> colour, in the order they were picked
+  compareWorks: new Set(),
   worksListVisible: true,
   currentGraph: null
 };
@@ -49,6 +57,7 @@ Promise.all([
     setupWorksControls();
     setupControls();
     setupHelpModal();
+    setupWorkLensControls();
     setupModeSwitch();
     updateNetwork();
   })
@@ -188,7 +197,9 @@ function setupControls() {
 }
 
 function currentPins() {
-  return state.pinsByMode[state.viewMode] || state.pinsByMode.full;
+  const key = `${state.lens}:${state.viewMode}`;
+  if (!state.pinsByMode[key]) state.pinsByMode[key] = new Map();
+  return state.pinsByMode[key];
 }
 
 function updatePinStatus() {
@@ -417,30 +428,51 @@ function renderCompareChips() {
 
 function updateNetwork() {
   const mode = state.viewMode;
-  const graph = mode === "works" && state.worksTags.size
-    ? buildWorksGraph()
-    : mode === "comparison" && state.compareTags.size >= 2
-      ? buildComparisonGraph()
-      : buildGraph();
+  let graph;
+
+  if (state.lens === "work") {
+    graph = mode === "comparison" && state.compareWorks.size >= 2
+      ? buildWorkComparisonGraph()
+      : buildWorkGraph();
+  } else {
+    graph = mode === "works" && state.worksTags.size
+      ? buildWorksGraph()
+      : mode === "comparison" && state.compareTags.size >= 2
+        ? buildComparisonGraph()
+        : buildGraph();
+  }
 
   state.currentGraph = graph;
   drawNetwork(graph);
   updatePinStatus();
-  updateCompareFilterNote();
 
-  renderWorksList();
-  if (mode === "comparison") compareSelectedTags();
-
-  let hint = "";
-  if (mode === "comparison" && state.compareTags.size < 2) {
-    hint = `<span class="status-hint">Add ${2 - state.compareTags.size} more tag(s) to see the comparison layout.</span>`;
-  } else if (mode === "works" && !state.worksTags.size) {
-    hint = `<span class="status-hint">Add a tag to see matching works.</span>`;
+  if (state.lens === "tag") {
+    updateCompareFilterNote();
+    renderWorksList();
+    if (mode === "comparison") compareSelectedTags();
+  } else {
+    renderHighlightChips();
+    renderCompareWorksChips();
+    if (mode === "comparison") renderWorkCompareResults();
   }
 
-  const counts = graph.mode === "works"
-    ? `<strong>${graph.nodes.filter((d) => d.type === "work").length}</strong> works · <strong>${graph.links.length}</strong> links`
-    : `<strong>${graph.nodes.length}</strong> tags · <strong>${graph.links.length}</strong> links`;
+  let hint = "";
+  if (state.lens === "tag" && mode === "comparison" && state.compareTags.size < 2) {
+    hint = `<span class="status-hint">Add ${2 - state.compareTags.size} more tag(s) to see the comparison layout.</span>`;
+  } else if (state.lens === "tag" && mode === "works" && !state.worksTags.size) {
+    hint = `<span class="status-hint">Add a tag to see matching works.</span>`;
+  } else if (state.lens === "work" && mode === "comparison" && state.compareWorks.size < 2) {
+    hint = `<span class="status-hint">Add ${2 - state.compareWorks.size} more work(s) to see the comparison layout.</span>`;
+  }
+
+  let counts;
+  if (graph.mode === "works" || graph.mode === "worknet") {
+    counts = `<strong>${graph.nodes.filter((d) => d.type === "work").length}</strong> works · <strong>${graph.links.length}</strong> links`;
+  } else if (graph.mode === "comparison" && graph.lens === "work") {
+    counts = `<strong>${graph.compareTags.length}</strong> works · <strong>${graph.nodes.length - graph.compareTags.length}</strong> hashtags`;
+  } else {
+    counts = `<strong>${graph.nodes.length}</strong> tags · <strong>${graph.links.length}</strong> links`;
+  }
 
   d3.select("#data-status").html(`${counts}${hint ? "<br>" + hint : ""}`);
 }
@@ -463,28 +495,49 @@ function updateCompareFilterNote() {
 // ---- Mode switch: Network / Compare / Works ----
 // Each mode keeps its own selections; switching only changes what is shown.
 const MODE_HELP = {
-  full: "Explore the whole hashtag network. Use the filters to hide tags or thin out weak links.",
-  comparison: "Pick two or more hashtags to see which tags sit near each one, and which they share.",
-  works: "Pick hashtags to list and map the works that carry them."
+  "tag:full": "Explore the whole hashtag network. Use the filters to hide tags or thin out weak links.",
+  "tag:comparison": "Pick two or more hashtags to see which tags sit near each one, and which they share.",
+  "tag:works": "Pick hashtags to list and map the works that carry them.",
+  "work:full": "Each node is a work, labelled by its ranking. Works are linked when their hashtags overlap; bigger nodes are linked to more works. Hover for the title, click for details.",
+  "work:comparison": "Pick two or more works to see which hashtags they share and which belong to only one of them."
 };
 
 function setupModeSwitch() {
   d3.selectAll("#mode-switch button").on("click", function () {
     setViewMode(this.dataset.mode);
   });
-  setViewMode(state.viewMode, true);
+  d3.selectAll("#lens-switch button").on("click", function () {
+    setLens(this.dataset.lens);
+  });
+  setLens(state.lens, true);
+}
+
+function setLens(lens, initial = false) {
+  state.lens = lens;
+  d3.selectAll("#lens-switch button")
+    .classed("active", function () { return this.dataset.lens === lens; })
+    .attr("aria-pressed", function () { return this.dataset.lens === lens ? "true" : "false"; });
+  // "Find works" only exists in the hashtag lens.
+  d3.select('#mode-switch button[data-mode="works"]').classed("mode-hidden", lens === "work");
+  d3.select("#mode-switch").classed("two-tabs", lens === "work");
+  if (lens === "work" && state.viewMode === "works") state.viewMode = "full";
+  setViewMode(state.viewMode, initial);
 }
 
 function setViewMode(mode, initial = false) {
   state.viewMode = mode;
+  const key = `${state.lens}:${mode}`;
   d3.selectAll("#mode-switch button")
     .classed("active", function () { return this.dataset.mode === mode; })
     .attr("aria-pressed", function () { return this.dataset.mode === mode ? "true" : "false"; });
   d3.selectAll("[data-modes]").classed("mode-hidden", function () {
-    return !this.dataset.modes.split(" ").includes(mode);
+    return !this.dataset.modes.split(" ").includes(key);
   });
-  d3.select("#mode-help").text(MODE_HELP[mode] || "");
+  d3.select("#mode-help").text(MODE_HELP[key] || "");
   hideNodeTooltip();
+  d3.select("#inspector").html(state.lens === "work"
+    ? "Click a link between two works to see the hashtags they share."
+    : "Click a hashtag node or edge to inspect it.");
   if (!initial) updateNetwork();
 }
 
@@ -664,6 +717,306 @@ function showWorkInspector(work) {
     <p><strong>Work ID:</strong> ${safe(work.work_id)}</p>
     <h4>All hashtags (${tags.length})</h4>
     <div class="work-tag-cloud">${tags.map(tag => `<span>${safe(tag)}</span>`).join("")}</div>
+  `);
+}
+
+// =====================================================================
+// Work lens
+// =====================================================================
+const ROMANCE_TAG = "로맨스판타지";
+const HIGHLIGHT_PALETTE = ["#d1495b", "#2e86ab", "#e09f3e", "#5b8e3e", "#8e5ea2", "#2a9d8f"];
+
+function workRank(work) {
+  const r = parseInt(work && work.rank, 10);
+  return Number.isFinite(r) ? r : 9999;
+}
+
+// Works that have hashtag data, in ranking order.
+function worksWithTags() {
+  return state.works
+    .filter((w) => state.tagsByWork.has(w.work_id))
+    .sort((a, b) => workRank(a) - workRank(b));
+}
+
+// The hashtags used to measure similarity (optionally without 로맨스판타지).
+function similarityTags(workId) {
+  const tags = new Set(state.tagsByWork.get(workId) || []);
+  if (!state.includeRomance) tags.delete(ROMANCE_TAG);
+  return tags;
+}
+
+// Work-to-work network. Edge weight = Jaccard similarity
+//   shared hashtags / all distinct hashtags the two works have together.
+function buildWorkGraph() {
+  const works = worksWithTags();
+  const sets = new Map(works.map((w) => [w.work_id, similarityTags(w.work_id)]));
+  const degree = new Map(works.map((w) => [w.work_id, 0]));
+  const links = [];
+
+  for (let i = 0; i < works.length; i++) {
+    for (let j = i + 1; j < works.length; j++) {
+      const a = sets.get(works[i].work_id);
+      const b = sets.get(works[j].work_id);
+      let shared = 0;
+      for (const t of a) if (b.has(t)) shared++;
+      const union = a.size + b.size - shared;
+      const jaccard = union ? shared / union : 0;
+      if (shared > 0 && jaccard >= state.minJaccard - 1e-9) {
+        links.push({ source: works[i].work_id, target: works[j].work_id, weight: jaccard, shared });
+        degree.set(works[i].work_id, degree.get(works[i].work_id) + 1);
+        degree.set(works[j].work_id, degree.get(works[j].work_id) + 1);
+      }
+    }
+  }
+
+  const nodes = works.map((w) => ({
+    id: w.work_id,
+    type: "work",
+    work_id: w.work_id,
+    label: w.title || w.work_id,
+    shortLabel: `#${w.rank || w.work_id}`,
+    degree: degree.get(w.work_id),
+    frequency: sets.get(w.work_id).size,
+    category: "work"
+  }));
+
+  return { mode: "worknet", nodes, links };
+}
+
+// Compare 2+ works: the works are anchors, their hashtags are grouped by
+// which of the selected works carry them (shared by all / some / only one).
+function buildWorkComparisonGraph() {
+  const selected = Array.from(state.compareWorks);
+  const tagSets = new Map(selected.map((id) => [id, new Set(state.tagsByWork.get(id) || [])]));
+  const nodes = selected.map((id) => {
+    const w = state.worksById.get(id) || {};
+    return {
+      id, type: "work", work_id: id,
+      label: w.title || id,
+      category: "work",
+      frequency: tagSets.get(id).size,
+      comparisonGroup: "anchor",
+      comparisonSubset: [id],
+      comparisonKey: "anchor:" + id
+    };
+  });
+  const links = [];
+  const allTags = new Set();
+  for (const set of tagSets.values()) for (const t of set) allTags.add(t);
+
+  for (const tag of allTags) {
+    const subset = selected.filter((id) => tagSets.get(id).has(tag));
+    const group = subset.length === selected.length ? "all" : subset.length === 1 ? "only" : "some";
+    nodes.push({
+      id: tag, label: tag, type: "tag",
+      category: state.metaByTag.get(tag)?.category || "unknown",
+      frequency: state.frequencyByTag.get(tag) || 0,
+      comparisonGroup: group,
+      comparisonSubset: subset,
+      comparisonKey: subset.join("|||"),
+      comparisonWeights: selected.map((id) => ({ selected: id, weight: tagSets.get(id).has(tag) ? 1 : 0 })),
+      comparisonTotalWeight: subset.length
+    });
+    for (const id of subset) links.push({ source: id, target: tag, weight: 1 });
+  }
+
+  return { mode: "comparison", lens: "work", compareTags: selected, nodes, links };
+}
+
+function setupWorkLensControls() {
+  // Similarity slider + 로맨스판타지 toggle
+  d3.select("#min-jaccard").on("input", function () {
+    state.minJaccard = +this.value;
+    d3.select("#jaccard-value").text(state.minJaccard.toFixed(2));
+    updateNetwork();
+  });
+  d3.select("#include-romance").on("change", function () {
+    state.includeRomance = this.checked;
+    updateNetwork();
+  });
+
+  // Colour by hashtag
+  const categories = Array.from(new Set(state.metadata.map((d) => d.category))).sort();
+  d3.select("#hl-category").selectAll("option").data(categories).join("option")
+    .attr("value", (d) => d).text((d) => formatCategory(d));
+  d3.select("#hl-category").on("change", updateHighlightDropdown);
+  d3.select("#add-hl-tag").on("click", () => {
+    const tag = d3.select("#hl-tag").property("value");
+    if (!tag || state.highlightTags.has(tag)) return;
+    if (state.highlightTags.size >= HIGHLIGHT_PALETTE.length) {
+      d3.select("#hl-note").text(`Up to ${HIGHLIGHT_PALETTE.length} hashtags. Remove one to add another.`);
+      return;
+    }
+    const used = new Set(state.highlightTags.values());
+    state.highlightTags.set(tag, HIGHLIGHT_PALETTE.find((c) => !used.has(c)));
+    afterHighlightChange();
+  });
+  d3.select("#clear-hl-tags").on("click", () => {
+    state.highlightTags.clear();
+    afterHighlightChange();
+  });
+
+  // Compare works
+  d3.select("#add-cw").on("click", () => {
+    const id = d3.select("#cw-work").property("value");
+    if (!id || state.compareWorks.has(id)) return;
+    state.compareWorks.add(id);
+    updateNetwork();
+  });
+  d3.select("#clear-cw").on("click", () => {
+    state.compareWorks.clear();
+    updateNetwork();
+  });
+
+  updateHighlightDropdown();
+  renderHighlightChips();
+  renderCompareWorksChips();
+}
+
+function updateHighlightDropdown() {
+  const category = d3.select("#hl-category").property("value");
+  const tags = Array.from(state.frequencyByTag.keys())
+    .filter((t) => (state.metaByTag.get(t)?.category || "unknown") === category && !state.highlightTags.has(t))
+    .sort((a, b) => a.localeCompare(b, "ko"));
+  const options = tags.length ? tags : [""];
+  d3.select("#hl-tag").selectAll("option").data(options).join("option")
+    .attr("value", (d) => d)
+    .text((d) => d ? `${d} (${state.frequencyByTag.get(d)})` : "No more tags in this category");
+}
+
+// Recolour in place so picking a colour does not re-run the layout.
+function afterHighlightChange() {
+  d3.select("#hl-note").text("");
+  updateHighlightDropdown();
+  renderHighlightChips();
+  graphLayer.selectAll("g.node").each(function (d) {
+    d3.select(this).select("circle")
+      .attr("fill", nodeColor(d))
+      .attr("stroke", nodeStroke(d))
+      .attr("stroke-width", nodeStrokeWidth(d));
+  });
+}
+
+function renderHighlightChips() {
+  const panel = d3.select("#hl-chips");
+  if (panel.empty()) return;
+  const entries = Array.from(state.highlightTags.entries());
+  if (!entries.length) {
+    panel.selectAll("*").remove();
+    panel.text("No hashtags coloured. All works are white.");
+    return;
+  }
+  clearPlaceholderText(panel);
+  const visible = new Set(worksWithTags().map((w) => w.work_id));
+  const chips = panel.selectAll("span.hl-chip").data(entries, (d) => d[0])
+    .join("span").attr("class", "tag-chip hl-chip");
+  chips.html("");
+  chips.append("span").attr("class", "hl-swatch").style("background", (d) => d[1]);
+  chips.append("span").text(([tag]) => {
+    let n = 0;
+    for (const [id, tags] of state.tagsByWork) if (visible.has(id) && tags.has(tag)) n++;
+    return `${tag} · ${n}`;
+  });
+  chips.append("button").attr("type", "button").attr("aria-label", (d) => `Remove ${d[0]}`)
+    .text("×").on("click", (event, [tag]) => {
+      state.highlightTags.delete(tag);
+      afterHighlightChange();
+    });
+}
+
+function renderCompareWorksChips() {
+  const options = worksWithTags().filter((w) => !state.compareWorks.has(w.work_id));
+  d3.select("#cw-work").selectAll("option").data(options, (d) => d.work_id).join("option")
+    .attr("value", (d) => d.work_id)
+    .text((d) => `#${d.rank} ${d.title}`);
+
+  const panel = d3.select("#cw-chips");
+  if (panel.empty()) return;
+  const ids = Array.from(state.compareWorks);
+  if (!ids.length) {
+    panel.selectAll("*").remove();
+    panel.text("No works selected.");
+    return;
+  }
+  clearPlaceholderText(panel);
+  const chips = panel.selectAll("span.cw-chip").data(ids, (d) => d)
+    .join("span").attr("class", "tag-chip cw-chip");
+  chips.html("");
+  chips.append("span").attr("class", "hl-swatch").style("background", (id) => compareColor(id));
+  chips.append("span").attr("class", "cw-chip-text").attr("title", (id) => state.worksById.get(id)?.title || id)
+    .text((id) => compareName(id, true));
+  chips.append("button").attr("type", "button").text("×").on("click", (event, id) => {
+    state.compareWorks.delete(id);
+    updateNetwork();
+  });
+}
+
+function renderWorkCompareResults() {
+  const results = d3.select("#cw-results");
+  const selected = Array.from(state.compareWorks);
+  if (selected.length < 2) {
+    results.html("Add two or more works to compare their hashtags.");
+    return;
+  }
+  const graph = state.currentGraph;
+  if (!graph || graph.mode !== "comparison" || graph.lens !== "work") return;
+
+  const total = selected.length;
+  const rows = graph.nodes.filter((n) => n.comparisonGroup && n.comparisonGroup !== "anchor");
+  const byFreq = (a, b) => b.frequency - a.frequency || a.id.localeCompare(b.id, "ko");
+  const dot = (color) => `<span class="cmp-dot" style="background:${color}"></span>`;
+  const tagCloud = (items) => items.length
+    ? `<div class="wc-tags">${items.sort(byFreq).map((r) =>
+        `<span class="wc-tag" style="--tag-color:${categoryColor(r.category)}">${escapeHtml(r.id)}</span>`).join("")}</div>`
+    : `<p class="small-note">None</p>`;
+  const group = (title, color, items) => `
+    <details class="compare-group" ${items.length ? "open" : ""}>
+      <summary>${dot(color)}<span>${title}</span><span class="cmp-count">${items.length}</span></summary>
+      ${tagCloud(items)}
+    </details>`;
+
+  let html = `<div class="cmp-anchors cmp-anchors-works">${selected.map((id) =>
+    `<span class="cmp-anchor">${dot(compareColor(id))}${escapeHtml(compareName(id, true))}</span>`).join("")}</div>`;
+
+  html += `<h4 class="cmp-heading">Intersection</h4>`;
+  html += group(`Shared by all ${total}`, compareSubsetColor(selected, total), rows.filter((r) => r.comparisonGroup === "all"));
+
+  if (total >= 3) {
+    const partial = d3.groups(rows.filter((r) => r.comparisonGroup === "some"), (r) => r.comparisonKey)
+      .map(([, items]) => ({ subset: items[0].comparisonSubset, items }))
+      .sort((a, b) => b.subset.length - a.subset.length || b.items.length - a.items.length);
+    html += `<h4 class="cmp-heading">Partial intersections</h4>`;
+    html += partial.length
+      ? partial.map((g) => group(escapeHtml(g.subset.map((id) => compareShortName(id)).join(" ∩ ")) + " only",
+          compareSubsetColor(g.subset, total), g.items)).join("")
+      : `<p class="small-note">No hashtags are shared by only some of the selected works.</p>`;
+  }
+
+  html += `<h4 class="cmp-heading">Differences</h4>`;
+  html += selected.map((id) => group(`Only ${escapeHtml(compareName(id, true))}`, compareSubsetColor([id], total),
+    rows.filter((r) => r.comparisonGroup === "only" && r.comparisonSubset[0] === id))).join("");
+
+  results.html(html);
+}
+
+function showWorkEdgeInspector(edge) {
+  const a = getLinkName(edge.source);
+  const b = getLinkName(edge.target);
+  const ta = similarityTags(a);
+  const tb = similarityTags(b);
+  const shared = Array.from(ta).filter((t) => tb.has(t)).sort((x, y) => (state.frequencyByTag.get(y) || 0) - (state.frequencyByTag.get(x) || 0));
+  const onlyA = Array.from(ta).filter((t) => !tb.has(t));
+  const onlyB = Array.from(tb).filter((t) => !ta.has(t));
+  const chip = (t) => `<span class="wc-tag" style="--tag-color:${categoryColor(state.metaByTag.get(t)?.category)}">${escapeHtml(t)}</span>`;
+  d3.select("#inspector").html(`
+    <div class="inspector-card">
+      <h3>${escapeHtml(compareName(a, true))}<br>↔ ${escapeHtml(compareName(b, true))}</h3>
+      <p><strong>Similarity (Jaccard):</strong> ${edge.weight.toFixed(2)}
+        <span class="small-note">= ${shared.length} shared ÷ ${shared.length + onlyA.length + onlyB.length} hashtags in total</span></p>
+      <h4>Shared hashtags (${shared.length})</h4>
+      <div class="wc-tags">${shared.map(chip).join("")}</div>
+      <p class="small-note">${state.includeRomance ? "" : "로맨스판타지 is not counted (see Work Similarity)."}</p>
+    </div>
   `);
 }
 
@@ -893,6 +1246,7 @@ function drawNetwork(graph) {
   .force("link", (() => {
     const force = d3.forceLink(links).id((d) => d.id).distance(() => {
       if (graph.mode === "works") return 145;
+      if (graph.mode === "worknet") return 80;
       if (isCompare) return 180;
       return 150;
     });
@@ -903,6 +1257,7 @@ function drawNetwork(graph) {
   })())
   .force("charge", d3.forceManyBody().strength((d) => {
     if (graph.mode === "works") return d.type === "work" ? -75 : -450;
+    if (graph.mode === "worknet") return -230;
     if (isCompare) return -35;
     return -380;
   }))
@@ -916,8 +1271,8 @@ function drawNetwork(graph) {
     simulation
       .force("center", d3.forceCenter(width / 2, height / 2))
       // Gentle pull toward the middle keeps the spread-out layout on screen.
-      .force("x", d3.forceX(width / 2).strength(graph.mode === "works" ? 0 : 0.06))
-      .force("y", d3.forceY(height / 2).strength(graph.mode === "works" ? 0 : 0.08));
+      .force("x", d3.forceX(width / 2).strength(graph.mode === "works" ? 0 : graph.mode === "worknet" ? 0.1 : 0.06))
+      .force("y", d3.forceY(height / 2).strength(graph.mode === "works" ? 0 : graph.mode === "worknet" ? 0.13 : 0.08));
   }
 
   const link = graphLayer.append("g")
@@ -927,24 +1282,26 @@ function drawNetwork(graph) {
     .join("line")
     .attr("class", "link")
     .attr("stroke", (d) => {
-      if (graph.mode === "works") return "#9c9692";
+      if (graph.mode === "works" || graph.mode === "worknet") return "#9c9692";
       if (isCompare) {
         const s = getLinkName(d.source);
         const t = getLinkName(d.target);
-        return compareColor(state.compareTags.has(s) ? s : t);
+        return compareColor(activeCompareSet().has(s) ? s : t);
       }
       return "#999";
     })
-    .attr("stroke-opacity", isCompare ? 0.18 : 0.45)
+    .attr("stroke-opacity", isCompare ? 0.18 : graph.mode === "worknet" ? 0.4 : 0.45)
     .attr("stroke-width", (d) => {
       if (graph.mode === "works") return 1.2;
+      if (graph.mode === "worknet") return 0.6 + d.weight * 7;
       if (graph.mode === "comparison") return 1 + Math.sqrt(d.weight);
       return Math.sqrt(d.weight);
     })
     .on("click", function (event, d) {
       event.stopPropagation();
       if (graph.mode === "works") return;
-      showEdgeInspector(d);
+      if (graph.mode === "worknet") showWorkEdgeInspector(d);
+      else if (graph.lens !== "work") showEdgeInspector(d);
     });
 
   let regionLabels = null;
@@ -976,7 +1333,11 @@ function drawNetwork(graph) {
   .on("mouseenter", function (event, d) {
     // Work nodes: hover shows the title label only.
     if (d.type === "work") {
-      d3.select(this).select("text").style("display", null);
+      if (graph.mode === "worknet") {
+        d3.select(this).raise().select("text").text(d.label).classed("is-hovered", true);
+      } else {
+        d3.select(this).select("text").style("display", null);
+      }
       return;
     }
     showNodeInspector(d);
@@ -995,7 +1356,8 @@ function drawNetwork(graph) {
     if (d.type !== "work") moveNodeTooltip(event);
   })
   .on("mouseleave", function (event, d) {
-    if (d.type === "work") d3.select(this).select("text").style("display", "none");
+    if (d.type === "work" && graph.mode === "works") d3.select(this).select("text").style("display", "none");
+    if (d.type === "work" && graph.mode === "worknet") d3.select(this).select("text").text(d.shortLabel).classed("is-hovered", false);
     hideNodeTooltip();
   })
   .on("dblclick", function (event, d) {
@@ -1006,30 +1368,22 @@ function drawNetwork(graph) {
   });
   
   node.append("circle")
-    .attr("r", (d) => {
-      if (d.type === "work") return 6.5;
-      if (isCompareAnchor(d.id)) return nodeRadius(d) + 4;
-      return nodeRadius(d);
-    })
+    .attr("r", (d) => circleRadius(d))
     .attr("fill", (d) => nodeColor(d))
-    .attr("stroke", (d) => {
-      if (isCompareAnchor(d.id)) return "#111111";
-      if (currentPins().has(d.id)) return "#111111";
-      return "#ffffff";
-    })
-    .attr("stroke-width", (d) => {
-      if (isCompareAnchor(d.id)) return 3;
-      if (currentPins().has(d.id)) return 3;
-      return 1.5;
-    });
+    .attr("stroke", (d) => nodeStroke(d))
+    .attr("stroke-width", (d) => nodeStrokeWidth(d));
   
   node.append("text")
-    .text((d) => d.label)
-    .style("display", (d) => d.type === "work" ? "none" : null)
+    .text((d) => graph.mode === "worknet" ? d.shortLabel : d.label)
+    .style("display", (d) => d.type === "work" && graph.mode === "works" ? "none" : null)
     .attr("class", "node-label")
-    .attr("x", (d) => (d.type === "work" ? 6.5 : nodeRadius(d)) + 5)
+    .attr("x", (d) => circleRadius(d) + 4)
     .attr("y", 4)
-    .attr("font-size", (d) => d.type === "work" ? "12px" : "13.5px")
+    .attr("font-size", (d) => {
+      if (graph.mode === "worknet") return "11.5px";
+      if (d.type === "work" && !isCompareAnchor(d.id)) return "12px";
+      return "13.5px";
+    })
     .attr("font-weight", (d) => (graph.mode === "works" ? state.worksTags.has(d.id) : isCompareAnchor(d.id)) ? 700 : 400)
     .attr("fill", (d) => isCompareAnchor(d.id) ? "#111111" : "#333333");
   
@@ -1081,11 +1435,28 @@ function compareSubsetColor(subset, total) {
     : d3.interpolateRgb(mix, "#8a8380")(0.35);
 }
 
+// Display names for compare anchors: hashtags as-is; works as "#rank title"
+// (long form) or "#rank" (short form, used on the map).
+function compareName(id, long = false) {
+  const w = state.lens === "work" ? state.worksById.get(id) : null;
+  if (!w) return id;
+  return long ? `#${w.rank} ${w.title}` : (w.title || id);
+}
+
+function compareShortName(id) {
+  const w = state.lens === "work" ? state.worksById.get(id) : null;
+  return w ? `#${w.rank}` : id;
+}
+
+function activeCompareSet() {
+  return state.lens === "work" ? state.compareWorks : state.compareTags;
+}
+
 function compareSubsetLabel(subset, total) {
   if (!subset || !subset.length) return "";
   if (subset.length === total && total > 1) return `Shared by all ${total}`;
-  if (subset.length === 1) return `Only ${subset[0]}`;
-  return subset.join(" ∩ ") + " only";
+  if (subset.length === 1) return `Only ${compareShortName(subset[0])}`;
+  return subset.map(compareShortName).join(" ∩ ") + " only";
 }
 
 // Anchor positions: two tags sit left/right; three or more sit on an ellipse.
@@ -1138,27 +1509,65 @@ function comparisonTarget(d, layout, total) {
 }
 
 function isCompareAnchor(id) {
-  return state.viewMode === "comparison" && state.compareTags.has(id);
+  return state.viewMode === "comparison" && activeCompareSet().has(id);
 }
 
 function nodeRadius(d) {
+  // Work network: size by how many other works a work is linked to.
+  if (d.degree != null) return 5 + Math.sqrt(d.degree) * 2.6;
+  if (d.type === "work" && d.comparisonGroup !== "anchor") return 6.5;
   return 6 + Math.sqrt(d.frequency || 1) * 2.6;
 }
 
-function nodeColor(d) {
-  if (d.type === "work") {
-    return d.matchCount > 1 ? "#77716e" : "#ffffff";
+function circleRadius(d) {
+  return isCompareAnchor(d.id) && d.degree == null ? nodeRadius(d) + 4 : nodeRadius(d);
+}
+
+// Hashtags picked under "Color by Hashtag" that this work carries.
+function highlightMatches(d) {
+  if (d.type !== "work" || !state.highlightTags.size) return [];
+  const tags = state.tagsByWork.get(d.work_id) || new Set();
+  return Array.from(state.highlightTags.keys()).filter((t) => tags.has(t));
+}
+
+function nodeStroke(d) {
+  if (currentPins().has(d.id)) return "#111111";
+  const graph = state.currentGraph;
+  if (graph && graph.mode === "worknet") {
+    if (isCompareAnchor(d.id)) return "#111111";
+    return highlightMatches(d).length > 1 ? "#2b2624" : "#9a918c";
   }
+  if (isCompareAnchor(d.id)) return "#111111";
+  return "#ffffff";
+}
+
+function nodeStrokeWidth(d) {
+  if (currentPins().has(d.id) || isCompareAnchor(d.id)) return 3;
+  const graph = state.currentGraph;
+  if (graph && graph.mode === "worknet") return highlightMatches(d).length > 1 ? 2.6 : 1.1;
+  return 1.5;
+}
+
+function nodeColor(d) {
   const graph = state.currentGraph;
 
-  if (graph && graph.mode === "works") return categoryColor(d.category);
+  if (graph && graph.mode === "worknet") {
+    const hits = highlightMatches(d);
+    return hits.length ? state.highlightTags.get(hits[0]) : "#ffffff";
+  }
 
   if (graph && graph.mode === "comparison") {
     if (d.comparisonGroup === "anchor") return compareColor(d.id);
     return compareSubsetColor(d.comparisonSubset, graph.compareTags.length);
   }
 
-  if (state.viewMode === "comparison" && state.compareTags.size > 0) {
+  if (d.type === "work") {
+    return d.matchCount > 1 ? "#77716e" : "#ffffff";
+  }
+
+  if (graph && graph.mode === "works") return categoryColor(d.category);
+
+  if (state.lens === "tag" && state.viewMode === "comparison" && state.compareTags.size > 0) {
     if (state.compareTags.has(d.id)) {
       return "#111111";
     }
@@ -1190,11 +1599,9 @@ function togglePin(d, nodeSelection) {
     d.fy = d.y;
   }
   updatePinStatus();
-  const pinned = currentPins().has(d.id);
-  const emphasised = pinned || isCompareAnchor(d.id);
   nodeSelection.select("circle")
-    .attr("stroke", emphasised ? "#111111" : "#ffffff")
-    .attr("stroke-width", emphasised ? 3 : 1.5);
+    .attr("stroke", nodeStroke(d))
+    .attr("stroke-width", nodeStrokeWidth(d));
 }
 
 // ---- Floating work cards (left side of the map) ----
@@ -1326,7 +1733,7 @@ function showNodeInspector(node) {
 
       ${
         node.comparisonGroup && node.comparisonGroup !== "anchor"
-          ? `<p><strong>Comparison group:</strong> ${compareSubsetLabel(node.comparisonSubset, state.compareTags.size)}</p>`
+          ? `<p><strong>Comparison group:</strong> ${compareSubsetLabel(node.comparisonSubset, activeCompareSet().size)}</p>`
           : ""
       }
 
@@ -1346,7 +1753,7 @@ function showNodeInspector(node) {
       <ol class="inspector-list">
         ${
           connected.length > 0
-            ? connected.map((d) => `<li><strong>${d.tag}</strong>: ${d.weight}</li>`).join("")
+            ? connected.map((d) => `<li><strong>${escapeHtml(compareName(d.tag, true))}</strong>: ${d.weight}</li>`).join("")
             : "<li>No visible connections under the current filters.</li>"
         }
       </ol>
@@ -1463,7 +1870,7 @@ function renderComparisonBars(weights) {
           return `
             <div class="compare-bar-row">
               <div class="compare-bar-label">
-                <span>${item.selected}</span>
+                <span>${escapeHtml(compareShortName(item.selected))}</span>
                 <span>${item.weight}</span>
               </div>
               <div class="compare-bar-track">
@@ -1511,12 +1918,12 @@ function showNodeTooltip(event, node) {
       Frequency: ${node.frequency}<br>
       ${
         node.comparisonGroup && node.comparisonGroup !== "anchor"
-          ? `Group: ${compareSubsetLabel(node.comparisonSubset, state.compareTags.size)}<br>`
+          ? `Group: ${compareSubsetLabel(node.comparisonSubset, activeCompareSet().size)}<br>`
           : ""
       }
       ${
         connected.length > 0
-          ? `<br><strong>#Top links</strong><br>${connected.map((d) => `#${d.tag} (${d.weight})`).join("<br>")}`
+          ? `<br><strong>#Top links</strong><br>${connected.map((d) => `${escapeHtml(compareName(d.tag, true))} (${d.weight})`).join("<br>")}`
           : ""
       }
     `);

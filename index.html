@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Romance Fantasy Hashtag Network</title>
-  <link rel="stylesheet" href="css/style.css?v=7">
+  <link rel="stylesheet" href="css/style.css?v=8">
 </head>
 
 <body>
@@ -25,10 +25,15 @@
 
     <aside id="control-panel">
       <section class="panel-section mode-section">
+        <div id="lens-switch" class="lens-switch" role="group" aria-label="Map by">
+          <span class="lens-label">Map by</span>
+          <button type="button" data-lens="tag">Hashtags</button>
+          <button type="button" data-lens="work">Works</button>
+        </div>
         <div id="mode-switch" class="mode-switch" role="group" aria-label="View mode">
           <button type="button" data-mode="full">Network</button>
           <button type="button" data-mode="comparison">Compare</button>
-          <button type="button" data-mode="works">Works</button>
+          <button type="button" data-mode="works">Find works</button>
         </div>
         <p id="mode-help" class="small-note mode-help"></p>
         <p id="data-status" class="data-status">Loading data...</p>
@@ -39,7 +44,7 @@
       </section>
 
       <!-- Compare mode -->
-      <section class="panel-section" data-modes="comparison">
+      <section class="panel-section" data-modes="tag:comparison">
         <h2>Compare Tags</h2>
         <p id="compare-filter-note" class="small-note filter-note hidden"></p>
 
@@ -65,7 +70,7 @@
       </section>
 
       <!-- Works mode -->
-      <section class="panel-section" id="works-panel" data-modes="works">
+      <section class="panel-section" id="works-panel" data-modes="tag:works">
         <div class="works-panel-heading">
           <h2>Matching Works</h2>
           <button id="toggle-works-list" type="button">Hide list</button>
@@ -89,7 +94,7 @@
       </section>
 
       <!-- Network + Compare: shared filters -->
-      <details class="panel-section panel-collapsible" data-modes="full" open>
+      <details class="panel-section panel-collapsible" data-modes="tag:full" open>
         <summary><h2>Filters</h2></summary>
 
         <h3>Category</h3>
@@ -125,6 +130,53 @@
         </div>
 
       </details>
+
+      <!-- Work lens: Network -->
+      <section class="panel-section" data-modes="work:full">
+        <h2>Work Similarity</h2>
+        <p class="small-note">Two works are linked when their hashtags overlap.
+          Similarity (Jaccard) = shared hashtags ÷ all the different hashtags the two works have between them,
+          so 1 means identical hashtags and 0 means none in common.</p>
+        <label class="slider-label">
+          Minimum similarity:
+          <span id="jaccard-value">0.20</span>
+          <input id="min-jaccard" type="range" min="0.05" max="0.5" step="0.01" value="0.2">
+        </label>
+        <label class="checkbox-row">
+          <input type="checkbox" id="include-romance"> Count 로맨스판타지 when measuring similarity
+        </label>
+      </section>
+
+      <section class="panel-section" data-modes="work:full">
+        <h2>Color by Hashtag</h2>
+        <p class="small-note">Pick up to 6 hashtags. Works carrying a hashtag take its colour;
+          a thick dark outline means the work carries two or more of them (the first one sets the colour).</p>
+        <label>
+          Category
+          <select id="hl-category"></select>
+        </label>
+        <label>Tag</label>
+        <div class="works-add-row">
+          <select id="hl-tag"></select>
+          <button id="add-hl-tag" type="button">+ Color</button>
+        </div>
+        <p id="hl-note" class="small-note"></p>
+        <div id="hl-chips" class="tag-chip-area">No hashtags coloured. All works are white.</div>
+        <button id="clear-hl-tags" type="button" class="secondary-button">Clear colours</button>
+      </section>
+
+      <!-- Work lens: Compare -->
+      <section class="panel-section" data-modes="work:comparison">
+        <h2>Compare Works</h2>
+        <label>Work</label>
+        <div class="works-add-row">
+          <select id="cw-work"></select>
+          <button id="add-cw" type="button">+ Add</button>
+        </div>
+        <div id="cw-chips" class="tag-chip-area">No works selected.</div>
+        <button id="clear-cw" type="button" class="secondary-button">Clear comparison</button>
+        <div id="cw-results">Add two or more works to compare their hashtags.</div>
+      </section>
 
       <section class="panel-section">
         <h2>Inspector</h2>
@@ -191,6 +243,15 @@
       </div>
 
       <div>
+        <h3>Map by works</h3>
+        <p>
+          Switch "Map by" to Works to turn every work into a node. Works are linked by how much
+          their hashtags overlap; use Color by Hashtag to paint works that carry a hashtag, and
+          Compare to set two or more works side by side.
+        </p>
+      </div>
+
+      <div>
         <h3>Read the edges</h3>
         <p>
           An edge means that two hashtags appear in the same work. A thicker edge means that the
@@ -202,6 +263,6 @@
 </div>
   
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-  <script src="js/app.js?v=7"></script>
+  <script src="js/app.js?v=8"></script>
 </body>
 </html>
