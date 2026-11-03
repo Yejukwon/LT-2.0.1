@@ -498,7 +498,7 @@ const MODE_HELP = {
   "tag:full": "Explore the whole hashtag network. Use the filters to hide tags or thin out weak links.",
   "tag:comparison": "Pick two or more hashtags to see which tags sit near each one, and which they share.",
   "tag:works": "Pick hashtags to list and map the works that carry them.",
-  "work:full": "Each node is a work, labelled by its ranking. Works are linked when their hashtags overlap; bigger nodes are linked to more works. Hover for the title, click for details.",
+  "work:full": "Each node is a work. Works are linked when their hashtags overlap, and more similar works sit closer together; bigger nodes are linked to more works. Hover for the full title, click for details.",
   "work:comparison": "Pick two or more works to see which hashtags they share and which belong to only one of them."
 };
 
@@ -726,6 +726,11 @@ function showWorkInspector(work) {
 const ROMANCE_TAG = "로맨스판타지";
 const HIGHLIGHT_PALETTE = ["#d1495b", "#2e86ab", "#e09f3e", "#5b8e3e", "#8e5ea2", "#2a9d8f"];
 
+function shortTitle(title, max = 11) {
+  const t = String(title || "").trim();
+  return t.length > max ? t.slice(0, max).trimEnd() + "…" : t;
+}
+
 function workRank(work) {
   const r = parseInt(work && work.rank, 10);
   return Number.isFinite(r) ? r : 9999;
@@ -774,7 +779,7 @@ function buildWorkGraph() {
     type: "work",
     work_id: w.work_id,
     label: w.title || w.work_id,
-    shortLabel: `#${w.rank || w.work_id}`,
+    shortLabel: shortTitle(w.title || w.work_id),
     degree: degree.get(w.work_id),
     frequency: sets.get(w.work_id).size,
     category: "work"
@@ -856,13 +861,20 @@ function setupWorkLensControls() {
     afterHighlightChange();
   });
 
-  // Compare works
-  d3.select("#add-cw").on("click", () => {
+  // Compare works: type to narrow the list, pick from the dropdown, or press Enter
+  const addSelectedWork = () => {
     const id = d3.select("#cw-work").property("value");
     if (!id || state.compareWorks.has(id)) return;
     state.compareWorks.add(id);
+    d3.select("#cw-search").property("value", "");
     updateNetwork();
-  });
+  };
+  d3.select("#add-cw").on("click", addSelectedWork);
+  d3.select("#cw-search")
+    .on("input", renderCompareWorksOptions)
+    .on("keydown", (event) => {
+      if (event.key === "Enter") { event.preventDefault(); addSelectedWork(); }
+    });
   d3.select("#clear-cw").on("click", () => {
     state.compareWorks.clear();
     updateNetwork();
@@ -889,11 +901,14 @@ function afterHighlightChange() {
   d3.select("#hl-note").text("");
   updateHighlightDropdown();
   renderHighlightChips();
+  const isWorkNet = state.currentGraph && state.currentGraph.mode === "worknet";
   graphLayer.selectAll("g.node").each(function (d) {
-    d3.select(this).select("circle")
+    const sel = d3.select(this);
+    sel.select("circle")
       .attr("fill", nodeColor(d))
       .attr("stroke", nodeStroke(d))
       .attr("stroke-width", nodeStrokeWidth(d));
+    if (isWorkNet) renderNodePie(sel, d);
   });
 }
 
@@ -924,11 +939,21 @@ function renderHighlightChips() {
     });
 }
 
+function renderCompareWorksOptions() {
+  const q = String(d3.select("#cw-search").property("value") || "").trim().toLowerCase().replace(/\s+/g, "");
+  const options = worksWithTags()
+    .filter((w) => !state.compareWorks.has(w.work_id))
+    .filter((w) => !q || `#${w.rank}${w.title}${w.writer || ""}`.toLowerCase().replace(/\s+/g, "").includes(q));
+  const sel = d3.select("#cw-work");
+  sel.selectAll("option").data(options.length ? options : [null], (d) => (d ? d.work_id : "none")).join("option")
+    .attr("value", (d) => (d ? d.work_id : ""))
+    .text((d) => (d ? `#${d.rank} ${d.title}` : "No matching works"));
+  d3.select("#cw-search-count").text(q ? `${options.length} match${options.length === 1 ? "" : "es"}` : "");
+  d3.select("#add-cw").property("disabled", !options.length);
+}
+
 function renderCompareWorksChips() {
-  const options = worksWithTags().filter((w) => !state.compareWorks.has(w.work_id));
-  d3.select("#cw-work").selectAll("option").data(options, (d) => d.work_id).join("option")
-    .attr("value", (d) => d.work_id)
-    .text((d) => `#${d.rank} ${d.title}`);
+  renderCompareWorksOptions();
 
   const panel = d3.select("#cw-chips");
   if (panel.empty()) return;
@@ -1244,9 +1269,9 @@ function drawNetwork(graph) {
 
   const simulation = d3.forceSimulation(nodes)
   .force("link", (() => {
-    const force = d3.forceLink(links).id((d) => d.id).distance(() => {
+    const force = d3.forceLink(links).id((d) => d.id).distance((d) => {
       if (graph.mode === "works") return 145;
-      if (graph.mode === "worknet") return 80;
+      if (graph.mode === "worknet") return 40 + (1 - d.weight) * 160;
       if (isCompare) return 180;
       return 150;
     });
@@ -1257,11 +1282,11 @@ function drawNetwork(graph) {
   })())
   .force("charge", d3.forceManyBody().strength((d) => {
     if (graph.mode === "works") return d.type === "work" ? -75 : -450;
-    if (graph.mode === "worknet") return -230;
+    if (graph.mode === "worknet") return -250;
     if (isCompare) return -35;
     return -380;
   }))
-  .force("collision", d3.forceCollide().radius((d) => nodeRadius(d) + (isCompare ? 4 : 10)));
+  .force("collision", d3.forceCollide().radius((d) => nodeRadius(d) + (isCompare ? 4 : graph.mode === "worknet" ? 14 : 10)));
 
   if (isCompare) {
     simulation
@@ -1271,8 +1296,8 @@ function drawNetwork(graph) {
     simulation
       .force("center", d3.forceCenter(width / 2, height / 2))
       // Gentle pull toward the middle keeps the spread-out layout on screen.
-      .force("x", d3.forceX(width / 2).strength(graph.mode === "works" ? 0 : graph.mode === "worknet" ? 0.1 : 0.06))
-      .force("y", d3.forceY(height / 2).strength(graph.mode === "works" ? 0 : graph.mode === "worknet" ? 0.13 : 0.08));
+      .force("x", d3.forceX(width / 2).strength(graph.mode === "works" ? 0 : graph.mode === "worknet" ? 0.12 : 0.06))
+      .force("y", d3.forceY(height / 2).strength(graph.mode === "works" ? 0 : graph.mode === "worknet" ? 0.16 : 0.08));
   }
 
   const link = graphLayer.append("g")
@@ -1372,6 +1397,11 @@ function drawNetwork(graph) {
     .attr("fill", (d) => nodeColor(d))
     .attr("stroke", (d) => nodeStroke(d))
     .attr("stroke-width", (d) => nodeStrokeWidth(d));
+
+  if (graph.mode === "worknet") {
+    node.append("g").attr("class", "node-pie");
+    node.each(function (d) { renderNodePie(d3.select(this), d); });
+  }
   
   node.append("text")
     .text((d) => graph.mode === "worknet" ? d.shortLabel : d.label)
@@ -1380,7 +1410,7 @@ function drawNetwork(graph) {
     .attr("x", (d) => circleRadius(d) + 4)
     .attr("y", 4)
     .attr("font-size", (d) => {
-      if (graph.mode === "worknet") return "11.5px";
+      if (graph.mode === "worknet") return "11px";
       if (d.type === "work" && !isCompareAnchor(d.id)) return "12px";
       return "13.5px";
     })
@@ -1530,12 +1560,33 @@ function highlightMatches(d) {
   return Array.from(state.highlightTags.keys()).filter((t) => tags.has(t));
 }
 
+// A work carrying two or more coloured hashtags is drawn as a pie, one equal
+// slice per hashtag, so no single colour hides the others.
+const pieArc = d3.arc().innerRadius(0);
+
+function renderNodePie(nodeSel, d) {
+  const hits = highlightMatches(d);
+  const r = circleRadius(d) - 0.6;
+  const slices = hits.length > 1 ? d3.pie().value(1).sort(null)(hits) : [];
+  nodeSel.select("g.node-pie").selectAll("path")
+    .data(slices)
+    .join("path")
+    .attr("d", (s) => pieArc.outerRadius(r)(s))
+    .attr("fill", (s) => state.highlightTags.get(s.data))
+    .attr("stroke", "#ffffff")
+    .attr("stroke-width", 0.6);
+  // Keep the outline ring visible on top of the slices.
+  nodeSel.select("circle").attr("fill-opacity", slices.length ? 0 : 1);
+  if (slices.length) nodeSel.select("circle").raise();
+  nodeSel.select("text").raise();
+}
+
 function nodeStroke(d) {
   if (currentPins().has(d.id)) return "#111111";
   const graph = state.currentGraph;
   if (graph && graph.mode === "worknet") {
     if (isCompareAnchor(d.id)) return "#111111";
-    return highlightMatches(d).length > 1 ? "#2b2624" : "#9a918c";
+    return "#8a817c";
   }
   if (isCompareAnchor(d.id)) return "#111111";
   return "#ffffff";
@@ -1544,7 +1595,7 @@ function nodeStroke(d) {
 function nodeStrokeWidth(d) {
   if (currentPins().has(d.id) || isCompareAnchor(d.id)) return 3;
   const graph = state.currentGraph;
-  if (graph && graph.mode === "worknet") return highlightMatches(d).length > 1 ? 2.6 : 1.1;
+  if (graph && graph.mode === "worknet") return 1.1;
   return 1.5;
 }
 
@@ -1668,12 +1719,16 @@ function openWorkCard(workId) {
 function drag(simulation) {
   function dragstarted(event, d) {
     if (!event.active) simulation.alphaTarget(0.3).restart();
-
+    d.__startX = event.x;
+    d.__startY = event.y;
+    d.__moved = false;
     d.fx = d.x;
     d.fy = d.y;
   }
 
   function dragged(event, d) {
+    // Ignore tiny jitters so an ordinary click never counts as a move.
+    if (Math.hypot(event.x - d.__startX, event.y - d.__startY) > 4) d.__moved = true;
     d.fx = event.x;
     d.fy = event.y;
   }
@@ -1681,13 +1736,16 @@ function drag(simulation) {
   function dragended(event, d) {
     if (!event.active) simulation.alphaTarget(0);
 
-    // Dragging no longer pins. A node that is already pinned stays pinned
-    // at its new spot; anything else is released back to the layout.
-    if (currentPins().has(d.id)) {
+    if (d.__moved) {
+      // Dropped somewhere new: keep it there (pinned). Double-click releases it.
       d.fx = event.x;
       d.fy = event.y;
       currentPins().set(d.id, { x: event.x, y: event.y });
-    } else {
+      d3.select(this).select("circle")
+        .attr("stroke", nodeStroke(d))
+        .attr("stroke-width", nodeStrokeWidth(d));
+      updatePinStatus();
+    } else if (!currentPins().has(d.id)) {
       d.fx = null;
       d.fy = null;
     }
@@ -1758,7 +1816,7 @@ function showNodeInspector(node) {
         }
       </ol>
 
-      <p class="small-note">Double-click a node to pin or unpin it.</p>
+      <p class="small-note">Drag a node to place it (it stays there). Double-click to pin or release it.</p>
     </div>
   `);
 }

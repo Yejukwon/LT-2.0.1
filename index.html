@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Romance Fantasy Hashtag Network</title>
-  <link rel="stylesheet" href="css/style.css?v=8">
+  <link rel="stylesheet" href="css/style.css?v=9">
 </head>
 
 <body>
@@ -38,7 +38,7 @@
         <p id="mode-help" class="small-note mode-help"></p>
         <p id="data-status" class="data-status">Loading data...</p>
         <div class="pin-bar">
-          <span class="pin-bar-text"><span id="pin-count">No pinned nodes</span> · double-click a node to pin / unpin</span>
+          <span class="pin-bar-text"><span id="pin-count">No pinned nodes</span> · drag a node to place it · double-click to pin / release</span>
           <button id="clear-all-pins" type="button">Unpin all</button>
         </div>
       </section>
@@ -150,7 +150,7 @@
       <section class="panel-section" data-modes="work:full">
         <h2>Color by Hashtag</h2>
         <p class="small-note">Pick up to 6 hashtags. Works carrying a hashtag take its colour;
-          a thick dark outline means the work carries two or more of them (the first one sets the colour).</p>
+          a work carrying several of them is split into equal slices, one per colour.</p>
         <label>
           Category
           <select id="hl-category"></select>
@@ -168,6 +168,11 @@
       <!-- Work lens: Compare -->
       <section class="panel-section" data-modes="work:comparison">
         <h2>Compare Works</h2>
+        <label for="cw-search">Search</label>
+        <div class="cw-search-row">
+          <input id="cw-search" type="search" placeholder="Title, author or #rank" autocomplete="off">
+          <span id="cw-search-count" class="small-note"></span>
+        </div>
         <label>Work</label>
         <div class="works-add-row">
           <select id="cw-work"></select>
@@ -221,7 +226,7 @@
       <div>
         <h3>Pin nodes</h3>
         <p>
-          Drag a node to move it. Double-click a node to pin or unpin it. Click a work node to open its info card. Use Clear all pinned
+          Drag a node to place it; it stays where you drop it. Double-click a node to pin or release it. Click a work node to open its info card. Use Clear all pinned
           nodes to reset the layout.
         </p>
       </div>
@@ -263,6 +268,6 @@
 </div>
   
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-  <script src="js/app.js?v=8"></script>
+  <script src="js/app.js?v=9"></script>
 </body>
 </html>

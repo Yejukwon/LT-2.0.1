@@ -1414,3 +1414,9 @@ body[data-lang="en"] .lang-en {
 }
 .cmp-anchors-works { flex-direction: column; gap: 4px; font-weight: 600; }
 #hl-note:empty { display: none; }
+
+/* Compare Works search */
+.cw-search-row { display: flex; align-items: center; gap: 8px; margin: 4px 0 2px; }
+.cw-search-row input { flex: 1; min-width: 0; padding: 7px 9px; border: 1px solid #ccc; border-radius: 4px; font: inherit; font-size: 13px; }
+.cw-search-row .small-note { flex: 0 0 auto; }
+.node-pie path { pointer-events: none; }
