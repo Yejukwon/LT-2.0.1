@@ -58,6 +58,7 @@ Promise.all([
     setupControls();
     setupHelpModal();
     setupWorkLensControls();
+    setupMagnifier();
     setupModeSwitch();
     updateNetwork();
   })
@@ -1259,8 +1260,8 @@ function drawNetwork(graph) {
       // Start each node near its region so the layout settles quickly
       // (pinned nodes stay where they were pinned).
       if (n.fx == null) {
-        n.x = t.x + (Math.random() - 0.5) * 40;
-        n.y = t.y + (Math.random() - 0.5) * 40;
+        n.x = t.x + (Math.random() - 0.5) * 120;
+        n.y = t.y + (Math.random() - 0.5) * 120;
       }
     }
   }
@@ -1272,26 +1273,39 @@ function drawNetwork(graph) {
     const force = d3.forceLink(links).id((d) => d.id).distance((d) => {
       if (graph.mode === "works") return 145;
       if (graph.mode === "worknet") return 40 + (1 - d.weight) * 160;
-      if (isCompare) return 180;
+      if (isCompare) return 120;
       return 150;
     });
-    // In comparison mode the grouping forces decide placement, not the links.
-    // (Elsewhere keep d3's default strength; passing null would switch it off.)
-    if (isCompare) force.strength(0.004);
+    // In comparison mode a tag hangs from each compare anchor it links to, so
+    // shared tags settle between anchors and unique ones float outside, just
+    // like in the main network. (Never pass null to strength: that turns it off.)
+    if (isCompare) force.strength((l) => 0.5 / Math.max(1, (l.target.comparisonSubset || [1]).length));
     return force;
   })())
   .force("charge", d3.forceManyBody().strength((d) => {
     if (graph.mode === "works") return d.type === "work" ? -75 : -450;
     if (graph.mode === "worknet") return -250;
-    if (isCompare) return -35;
+    if (isCompare) return d.comparisonGroup === "anchor" ? -600 : -200;
     return -380;
   }))
-  .force("collision", d3.forceCollide().radius((d) => nodeRadius(d) + (isCompare ? 4 : graph.mode === "worknet" ? 14 : 10)));
+  .force("collision", d3.forceCollide().radius((d) => nodeRadius(d) + (isCompare ? 9 : graph.mode === "worknet" ? 14 : 10)));
+
+  // Keep every node inside the visible map area.
+  simulation.force("bounds", () => {
+    for (const n of nodes) {
+      if (n.fx != null) continue;
+      const r = nodeRadius(n) + 8;
+      n.x = Math.max(r, Math.min(width - r, n.x));
+      n.y = Math.max(r + 14, Math.min(height - r - 14, n.y));
+    }
+  });
 
   if (isCompare) {
     simulation
-      .force("x", d3.forceX((d) => d.tx).strength((d) => (d.comparisonGroup === "anchor" ? 1 : 0.22)))
-      .force("y", d3.forceY((d) => d.ty).strength((d) => (d.comparisonGroup === "anchor" ? 1 : 0.22)));
+      // Anchors hold their slots; everything else only gets a light nudge
+      // toward its region and is otherwise free, like the main network.
+      .force("x", d3.forceX((d) => d.tx).strength((d) => (d.comparisonGroup === "anchor" ? 0.6 : 0.035)))
+      .force("y", d3.forceY((d) => d.ty).strength((d) => (d.comparisonGroup === "anchor" ? 0.6 : 0.035)));
   } else {
     simulation
       .force("center", d3.forceCenter(width / 2, height / 2))
@@ -1311,15 +1325,15 @@ function drawNetwork(graph) {
       if (isCompare) {
         const s = getLinkName(d.source);
         const t = getLinkName(d.target);
-        return compareColor(activeCompareSet().has(s) ? s : t);
+        return d3.interpolateRgb(compareColor(activeCompareSet().has(s) ? s : t), "#9a9a9a")(0.45);
       }
       return "#999";
     })
-    .attr("stroke-opacity", isCompare ? 0.18 : graph.mode === "worknet" ? 0.4 : 0.45)
+    .attr("stroke-opacity", isCompare ? 0.32 : graph.mode === "worknet" ? 0.4 : 0.45)
     .attr("stroke-width", (d) => {
       if (graph.mode === "works") return 1.2;
       if (graph.mode === "worknet") return 0.6 + d.weight * 7;
-      if (graph.mode === "comparison") return 1 + Math.sqrt(d.weight);
+      if (graph.mode === "comparison") return graph.lens === "work" ? 1 : 0.6 + Math.sqrt(d.weight) * 0.6;
       return Math.sqrt(d.weight);
     })
     .on("click", function (event, d) {
@@ -1417,15 +1431,27 @@ function drawNetwork(graph) {
     .attr("font-weight", (d) => (graph.mode === "works" ? state.worksTags.has(d.id) : isCompareAnchor(d.id)) ? 700 : 400)
     .attr("fill", (d) => isCompareAnchor(d.id) ? "#111111" : "#333333");
   
-  simulation.on("tick", () => {
+  // Draw positions, bent through the magnifier when it is on.
+  const render = () => {
+    const f = fisheyeFocus();
+    if (f) {
+      for (const n of nodes) n.__fe = applyFisheye(n, f);
+    }
+    const pos = (n) => (f && n.__fe ? n.__fe : n);
     link
-      .attr("x1", (d) => d.source.x)
-      .attr("y1", (d) => d.source.y)
-      .attr("x2", (d) => d.target.x)
-      .attr("y2", (d) => d.target.y);
+      .attr("x1", (d) => pos(d.source).x)
+      .attr("y1", (d) => pos(d.source).y)
+      .attr("x2", (d) => pos(d.target).x)
+      .attr("y2", (d) => pos(d.target).y);
+    node.attr("transform", (d) => {
+      const p = pos(d);
+      return f && p.z > 1.001 ? `translate(${p.x},${p.y}) scale(${p.z})` : `translate(${p.x},${p.y})`;
+    });
+  };
+  currentRender = render;
 
-    node
-      .attr("transform", (d) => `translate(${d.x},${d.y})`);
+  simulation.on("tick", () => {
+    render();
 
     // Keep each region label just outside its cluster (above it in the top
     // half of the map, below it in the bottom half).
@@ -1494,7 +1520,7 @@ function compareAnchorPositions(tags, width, height) {
   const cx = width / 2;
   const cy = height / 2;
   const rx = width * 0.28;
-  const ry = height * (tags.length === 2 ? 0.29 : 0.25);
+  const ry = height * (tags.length === 2 ? 0.29 : 0.22);
   const map = new Map();
   tags.forEach((tag, i) => {
     const angle = tags.length === 2
@@ -1639,6 +1665,58 @@ function categoryColor(category) {
 
 let nodeClickTimer = null;
 
+// ---- Magnifier (fisheye lens) ----
+// When on, the area around the pointer is enlarged like a magnifying glass
+// while the rest of the map stays put. Display-only: the layout is unchanged.
+const magnifier = { on: false, focus: null, dragging: false, radius: 170, distortion: 3.2 };
+let currentRender = null;
+
+function fisheyeFocus() {
+  return magnifier.on && !magnifier.dragging ? magnifier.focus : null;
+}
+
+// Circular fisheye (after Sarkar & Brown): returns distorted x, y and a zoom z.
+function applyFisheye(p, focus) {
+  const { radius, distortion } = magnifier;
+  const e = Math.exp(distortion);
+  const k0 = (e / (e - 1)) * radius;
+  const k1 = distortion / radius;
+  const dx = p.x - focus.x;
+  const dy = p.y - focus.y;
+  const dd = Math.sqrt(dx * dx + dy * dy);
+  if (!dd || dd >= radius) return { x: p.x, y: p.y, z: dd >= radius ? 1 : Math.min(distortion, 3) };
+  const k = (k0 * (1 - Math.exp(-dd * k1))) / dd * 0.75 + 0.25;
+  return { x: focus.x + dx * k, y: focus.y + dy * k, z: Math.min(k, 3) };
+}
+
+function setupMagnifier() {
+  const btn = d3.select("#network-area").append("button")
+    .attr("id", "magnifier-toggle")
+    .attr("type", "button")
+    .attr("aria-pressed", "false")
+    .attr("title", "Magnify the area under the pointer")
+    .html('<span class="mag-icon" aria-hidden="true"></span><span class="mag-text">Magnifier</span>')
+    .on("click", () => {
+      magnifier.on = !magnifier.on;
+      magnifier.focus = null;
+      btn.classed("active", magnifier.on).attr("aria-pressed", String(magnifier.on));
+      d3.select("#network-area").classed("magnifying", magnifier.on);
+      if (currentRender) currentRender();
+    });
+
+  svg.on("mousemove.magnifier", (event) => {
+    if (!magnifier.on) return;
+    const [x, y] = d3.pointer(event, graphLayer.node());
+    magnifier.focus = { x, y };
+    if (currentRender) currentRender();
+  });
+  svg.on("mouseleave.magnifier", () => {
+    if (!magnifier.on) return;
+    magnifier.focus = null;
+    if (currentRender) currentRender();
+  });
+}
+
 function togglePin(d, nodeSelection) {
   if (currentPins().has(d.id)) {
     currentPins().delete(d.id);
@@ -1718,6 +1796,7 @@ function openWorkCard(workId) {
 
 function drag(simulation) {
   function dragstarted(event, d) {
+    magnifier.dragging = true;
     if (!event.active) simulation.alphaTarget(0.3).restart();
     d.__startX = event.x;
     d.__startY = event.y;
@@ -1734,6 +1813,7 @@ function drag(simulation) {
   }
 
   function dragended(event, d) {
+    magnifier.dragging = false;
     if (!event.active) simulation.alphaTarget(0);
 
     if (d.__moved) {
