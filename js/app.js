@@ -7,6 +7,12 @@ const state = {
   tagsByWork: new Map(),
   frequencyByTag: new Map(),
   selectedCategories: new Set(),
+  // Layer 2 (meaning) categories that are switched on in Filters
+  selectedL2: new Set(),
+  // Node colouring in the hashtag network: "l2" (pie of layer-2 categories) or "l1"
+  colorBy: "l2",
+  // Closeness view in Hashtags > Network
+  closeness: { on: false, focus: "능력녀" },
   minFrequency: 1,
   minWeight: 1,
   excludedTags: new Set(),
@@ -64,6 +70,7 @@ Promise.all([
     setupHelpModal();
     setupWorkLensControls();
     setupAnalysisControls();
+    setupClosenessControls();
     setupMagnifier();
     setupModeSwitch();
     updateNetwork();
@@ -98,8 +105,32 @@ function cleanCategory(category) {
     .toLowerCase();
 }
 
+// Layer 1 = who/what the tag describes (stored in `category` as an English key).
+const L1_ORDER = ["female_protagonist", "male_protagonist", "relationship", "genre_plot"];
+const L1_LABELS = {
+  female_protagonist: "여주 · female lead",
+  male_protagonist: "남주 · male lead",
+  relationship: "관계 · relationship",
+  genre_plot: "장르·플롯·배경 · genre / plot / setting"
+};
+// Layer 2 = what kind of meaning the tag carries (a tag can have more than one).
+const L2_ORDER = ["감정·태도", "능력·생산성", "지식·정보 우위", "신분·권력", "관계성", "서사 장치", "장르·배경·분위기"];
+const L2_COLORS = {
+  "감정·태도": "#d1495b",
+  "능력·생산성": "#e09f3e",
+  "지식·정보 우위": "#2e86ab",
+  "신분·권력": "#8e5ea2",
+  "관계성": "#2a9d8f",
+  "서사 장치": "#5b8e3e",
+  "장르·배경·분위기": "#9a8f86"
+};
+
+function layer2Color(c) {
+  return L2_COLORS[c] || "#bdb5b0";
+}
+
 function formatCategory(category) {
-  return String(category || "unknown").replace(/_/g, " ");
+  return L1_LABELS[category] || String(category || "unknown").replace(/_/g, " ");
 }
 
 function prepareData() {
@@ -111,7 +142,10 @@ function prepareData() {
     .map((d) => ({
       tag: cleanTag(d.tag),
       category: cleanCategory(d.category),
-      description: d.description || ""
+      layer1: String(d.layer1 || "").trim(),
+      layer2: String(d.layer2 || "").split(/[;,]/).map((x) => x.trim()).filter(Boolean),
+      description: d.description || "",
+      note: d.note || ""
     }))
     .filter((d) => d.tag && d.tag !== "N/A");
 
@@ -146,9 +180,9 @@ function prepareData() {
 }
 
 function setupControls() {
-  const categories = Array.from(
-    new Set(state.metadata.map((d) => d.category))
-  ).sort();
+  const present = new Set(state.metadata.map((d) => d.category));
+  const categories = [...L1_ORDER.filter((c) => present.has(c)),
+    ...Array.from(present).filter((c) => !L1_ORDER.includes(c)).sort()];
 
   state.selectedCategories = new Set(categories);
 
@@ -177,8 +211,34 @@ function setupControls() {
         updateNetwork();
       });
 
+    row.append("span").attr("class", "cat-dot").style("background", categoryColor(category));
     row.append("span")
-      .text(" " + formatCategory(category));
+      .text(formatCategory(category) + ` (${state.metadata.filter((m) => m.category === category).length})`);
+  });
+
+  // Layer 2 checkboxes: a tag stays visible while at least one of its
+  // layer-2 categories is switched on.
+  const l2Present = new Set(state.metadata.flatMap((m) => m.layer2));
+  const l2 = [...L2_ORDER.filter((c) => l2Present.has(c)),
+    ...Array.from(l2Present).filter((c) => !L2_ORDER.includes(c)).sort()];
+  state.selectedL2 = new Set(l2);
+  const l2Rows = d3.select("#layer2-filters").selectAll("label").data(l2).join("label").attr("class", "checkbox-row");
+  l2Rows.each(function (c) {
+    const row = d3.select(this);
+    row.html("");
+    row.append("input").attr("type", "checkbox").property("checked", true).on("change", function () {
+      if (this.checked) state.selectedL2.add(c); else state.selectedL2.delete(c);
+      updateNetwork();
+    });
+    row.append("span").attr("class", "cat-dot").style("background", layer2Color(c));
+    row.append("span").text(`${c} (${state.metadata.filter((m) => m.layer2.includes(c)).length})`);
+  });
+
+  d3.selectAll('input[name="color-by"]').on("change", function () {
+    state.colorBy = this.value;
+    // closeness wedges follow the colouring layer, so redraw in that view
+    if (state.closeness.on && state.viewMode === "full") updateNetwork();
+    else recolorNodes();
   });
 
   const maxFrequency = d3.max(Array.from(state.frequencyByTag.values())) || 1;
@@ -204,7 +264,8 @@ function setupControls() {
 }
 
 function currentPins() {
-  const key = `${state.lens}:${state.viewMode}`;
+  const closeView = state.lens === "tag" && state.viewMode === "full" && state.closeness.on;
+  const key = `${state.lens}:${state.viewMode}${closeView ? ":closeness" : ""}`;
   if (!state.pinsByMode[key]) state.pinsByMode[key] = new Map();
   return state.pinsByMode[key];
 }
@@ -448,7 +509,9 @@ function updateNetwork() {
       ? buildWorksGraph()
       : mode === "comparison" && state.compareTags.size >= 2
         ? buildComparisonGraph()
-        : buildGraph();
+        : mode === "full" && state.closeness.on
+          ? buildClosenessGraph(buildGraph())
+          : buildGraph();
   }
 
   state.currentGraph = graph;
@@ -460,6 +523,7 @@ function updateNetwork() {
     renderWorksList();
     if (mode === "comparison") compareSelectedTags();
     if (mode === "analysis") renderAnalysisPanel();
+    if (mode === "full") renderClosenessPanel();
   } else {
     renderHighlightChips();
     renderCompareWorksChips();
@@ -494,7 +558,10 @@ function updateCompareFilterNote() {
   const allCats = new Set(state.metadata.map((d) => d.category));
   const parts = [];
   const offCats = Array.from(allCats).filter((c) => !state.selectedCategories.has(c));
-  if (offCats.length) parts.push(`${offCats.length} categor${offCats.length > 1 ? "ies" : "y"} off`);
+  if (offCats.length) parts.push(`${offCats.length} layer-1 categor${offCats.length > 1 ? "ies" : "y"} off`);
+  const allL2 = new Set(state.metadata.flatMap((m) => m.layer2));
+  const offL2 = Array.from(allL2).filter((c) => !state.selectedL2.has(c));
+  if (offL2.length) parts.push(`${offL2.length} layer-2 categor${offL2.length > 1 ? "ies" : "y"} off`);
   if (state.minFrequency > 1) parts.push(`min frequency ${state.minFrequency}`);
   if (state.minWeight > 1) parts.push(`min edge weight ${state.minWeight}`);
   if (state.excludedTags.size) parts.push(`${state.excludedTags.size} hidden tag${state.excludedTags.size > 1 ? "s" : ""}`);
@@ -920,7 +987,7 @@ function afterHighlightChange() {
       .attr("fill", nodeColor(d))
       .attr("stroke", nodeStroke(d))
       .attr("stroke-width", nodeStrokeWidth(d));
-    if (isWorkNet) renderNodePie(sel, d);
+    if (!sel.select("g.node-pie").empty()) renderNodePie(sel, d);
   });
 }
 
@@ -1645,7 +1712,8 @@ function analysisClusterCategories() {
 function renderCategoryToggles(selector, on, counts, onChange) {
   const box = d3.select(selector);
   if (box.empty()) return;
-  const cats = Array.from(new Set(state.metadata.map((d) => d.category))).sort();
+  const present = new Set(state.metadata.map((d) => d.category));
+  const cats = [...L1_ORDER.filter((c) => present.has(c)), ...Array.from(present).filter((c) => !L1_ORDER.includes(c)).sort()];
   const labels = box.selectAll("label").data(cats, (d) => d).join((enter) => {
     const l = enter.append("label").attr("class", "an-cat-toggle");
     l.append("input").attr("type", "checkbox");
@@ -1821,6 +1889,181 @@ function downloadClustersCSV() {
   downloadCSV(`clusters_${res.method}_${res.focus}.csv`, out);
 }
 
+// =====================================================================
+// Closeness to a focus hashtag (Hashtags > Network)
+// =====================================================================
+// For each hashtag X:  RR = P(X | works with focus) / P(X | works without focus)
+// RR > 1: X turns up relatively more often alongside the focus tag.
+// The map uses a smoothed RR (+0.5 to each count) so that tags never seen
+// without the focus tag do not become infinitely close.
+function closenessCounts() {
+  const focus = state.closeness.focus;
+  const works = worksWithTags();
+  const withF = works.filter((w) => state.tagsByWork.get(w.work_id).has(focus));
+  const without = works.filter((w) => !state.tagsByWork.get(w.work_id).has(focus));
+  return { focus, works, withF, without, nf: withF.length, no: without.length };
+}
+
+function smoothedRR(a, nf, b, no) {
+  return ((a + 0.5) / (nf + 1)) / ((b + 0.5) / (no + 1));
+}
+
+function rawRR(a, nf, b, no) {
+  if (!nf || !no) return NaN;
+  if (b === 0) return a > 0 ? Infinity : NaN;
+  return (a / nf) / (b / no);
+}
+
+function buildClosenessGraph(base) {
+  const c = closenessCounts();
+  const nodes = base.nodes.slice();
+  if (!nodes.some((n) => n.id === c.focus)) {
+    const meta = state.metaByTag.get(c.focus) || {};
+    nodes.push({ id: c.focus, label: c.focus, category: meta.category || "unknown", layer1: meta.layer1 || "",
+      layer2: meta.layer2 || [], description: meta.description || "", frequency: state.frequencyByTag.get(c.focus) || 0 });
+  }
+  const withCount = new Map();
+  const withoutCount = new Map();
+  for (const w of c.withF) for (const t of state.tagsByWork.get(w.work_id)) withCount.set(t, (withCount.get(t) || 0) + 1);
+  for (const w of c.without) for (const t of state.tagsByWork.get(w.work_id)) withoutCount.set(t, (withoutCount.get(t) || 0) + 1);
+  for (const n of nodes) {
+    if (n.id === c.focus) { n.closeness = { isFocus: true }; continue; }
+    const a = withCount.get(n.id) || 0;
+    const b = withoutCount.get(n.id) || 0;
+    const rr = smoothedRR(a, c.nf, b, c.no);
+    n.closeness = { a, b, nf: c.nf, no: c.no, rr, raw: rawRR(a, c.nf, b, c.no),
+      score: Math.max(-3, Math.min(3, Math.log2(rr))), sparse: a + b < 3 };
+  }
+  return { nodes, links: base.links, closeness: { focus: c.focus, nf: c.nf, no: c.no } };
+}
+
+// Work-level category comparison (same definition as the Excel "범주 비교"):
+// a work "has" a category if any of its hashtags (other than the focus tag)
+// belongs to it.
+function categoryCloseness() {
+  const c = closenessCounts();
+  const rows = (layer) => {
+    const keys = layer === 1 ? L1_ORDER : L2_ORDER;
+    return keys.map((k) => {
+      const has = (w) => Array.from(state.tagsByWork.get(w.work_id)).some((t) => {
+        if (t === c.focus) return false;
+        const m = state.metaByTag.get(t);
+        return m && (layer === 1 ? m.category === k : m.layer2.includes(k));
+      });
+      const a = c.withF.filter(has).length;
+      const b = c.without.filter(has).length;
+      // Same smoothed ratio as the Excel sheet: (a+0.5)/(nf+1) ÷ (b+0.5)/(no+1)
+      return { key: k, a, b, pa: c.nf ? a / c.nf : 0, pb: c.no ? b / c.no : 0, rr: smoothedRR(a, c.nf, b, c.no) };
+    }).sort((x, y) => y.rr - x.rr);
+  };
+  return { ...c, l1: rows(1), l2: rows(2) };
+}
+
+function setupClosenessControls() {
+  if (d3.select("#cl-category").empty()) return;
+  const cats = L1_ORDER.filter((k) => state.metadata.some((m) => m.category === k));
+  d3.select("#cl-category").selectAll("option").data(cats).join("option")
+    .attr("value", (d) => d).text((d) => formatCategory(d));
+  const focusCat = state.metaByTag.get(state.closeness.focus)?.category;
+  if (focusCat) d3.select("#cl-category").property("value", focusCat);
+  const fillTags = () => {
+    const cat = d3.select("#cl-category").property("value");
+    const tags = Array.from(state.frequencyByTag.keys())
+      .filter((t) => state.metaByTag.get(t)?.category === cat)
+      .sort((x, y) => (state.frequencyByTag.get(y) - state.frequencyByTag.get(x)) || x.localeCompare(y, "ko"));
+    d3.select("#cl-tag").selectAll("option").data(tags).join("option")
+      .attr("value", (d) => d).text((d) => `${d} (${state.frequencyByTag.get(d)})`);
+    if (tags.includes(state.closeness.focus)) d3.select("#cl-tag").property("value", state.closeness.focus);
+  };
+  d3.select("#cl-category").on("change", fillTags);
+  d3.select("#cl-set").on("click", () => {
+    const tag = d3.select("#cl-tag").property("value");
+    if (!tag || tag === state.closeness.focus) return;
+    state.closeness.focus = tag;
+    updateNetwork();
+  });
+  d3.select("#cl-on").property("checked", state.closeness.on).on("change", function () {
+    state.closeness.on = this.checked;
+    updateNetwork();
+  });
+  fillTags();
+}
+
+function fmtRR(rr) {
+  if (rr === Infinity) return "only with";
+  if (!isFinite(rr)) return "–";
+  return `×${rr.toFixed(2)}`;
+}
+
+function renderClosenessPanel() {
+  if (d3.select("#cl-table").empty()) return;
+  const res = categoryCloseness();
+  const focusCat = state.metaByTag.get(res.focus)?.category;
+  d3.select("#cl-focus-current").html(
+    `<span class="cat-dot" style="background:${categoryColor(focusCat)}"></span><span class="an-focus-label">Focus</span><strong>${escapeHtml(res.focus)}</strong>`);
+  const maxRR = Math.max(2, ...[...res.l1, ...res.l2].map((r) => (isFinite(r.rr) ? r.rr : 0)));
+  const table = (title, rows, colorOf, labelOf) => `
+    <div class="cl-sub">${title}</div>
+    <table class="an-table cl-table">
+      <thead><tr><th>Category</th><th class="num">With</th><th class="num">Without</th><th class="num">Ratio</th></tr></thead>
+      <tbody>${rows.map((r) => {
+        const w = isFinite(r.rr) ? Math.min(1, r.rr / maxRR) : 1;
+        const side = r.rr > 1 ? "up" : "down";
+        return `<tr>
+          <td><span class="cat-dot" style="background:${colorOf(r.key)}"></span>${escapeHtml(labelOf(r.key))}</td>
+          <td class="num">${Math.round(r.pa * 100)}% <span class="small-note">${r.a}/${res.nf}</span></td>
+          <td class="num">${Math.round(r.pb * 100)}% <span class="small-note">${r.b}/${res.no}</span></td>
+          <td class="num"><span class="cl-bar ${side}" style="width:${Math.round(w * 46)}px"></span>${fmtRR(r.rr)}</td>
+        </tr>`;
+      }).join("")}</tbody>
+    </table>`;
+  d3.select("#cl-summary").html(
+    `<strong>${escapeHtml(res.focus)}</strong> is on <strong>${res.nf}</strong> of ${res.works.length} works; the other <strong>${res.no}</strong> works are the comparison group.`);
+  d3.select("#cl-table").html(
+    table("Layer 1 · who / what", res.l1, categoryColor, (k) => formatCategory(k)) +
+    table("Layer 2 · meaning", res.l2, layer2Color, (k) => k));
+}
+
+// Radial layout targets: focus in the centre; wedges by colouring layer;
+// distance by closeness score (inside the dashed ring = more common with the focus).
+function closenessLayout(nodes, width, height) {
+  const cx = width / 2;
+  const cy = height / 2;
+  const R = Math.min(width, height) * 0.45;
+  const groupOf = (d) => (state.colorBy === "l2" ? (d.layer2 && d.layer2[0]) || "?" : d.category);
+  const order = state.colorBy === "l2" ? L2_ORDER : L1_ORDER;
+  const groups = d3.groups(nodes.filter((n) => !n.closeness?.isFocus), groupOf)
+    .sort((a, b) => {
+      const ia = order.indexOf(a[0]); const ib = order.indexOf(b[0]);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    });
+  const total = d3.sum(groups, (g) => g[1].length) || 1;
+  const radiusFor = (score) => R * Math.max(0.12, Math.min(1, 0.55 - 0.15 * score));
+  const wedges = [];
+  let start = -Math.PI / 2;
+  for (const [key, members] of groups) {
+    // wedge size follows the number of tags, with a minimum so small groups stay readable
+    const span = Math.max(0.35, (2 * Math.PI * members.length) / total);
+    wedges.push({ key, members, start, span });
+    start += span;
+  }
+  const scale = (2 * Math.PI) / (start + Math.PI / 2);
+  let s0 = -Math.PI / 2;
+  for (const w of wedges) {
+    w.start = s0;
+    w.span *= scale;
+    s0 += w.span;
+    const sorted = w.members.slice().sort((a, b) => b.closeness.score - a.closeness.score);
+    sorted.forEach((n, i) => {
+      const ang = w.start + w.span * ((i + 0.5) / sorted.length) * 0.9 + w.span * 0.05;
+      const r = radiusFor(n.closeness.score);
+      n.tx = cx + Math.cos(ang) * r;
+      n.ty = cy + Math.sin(ang) * r;
+    });
+  }
+  return { cx, cy, R, wedges, radiusFor };
+}
+
 function buildGraph() {
   const allTags = Array.from(state.frequencyByTag.keys());
 
@@ -1832,6 +2075,7 @@ function buildGraph() {
 
       if (state.excludedTags.has(tag)) return false;
       if (!state.selectedCategories.has(category)) return false;
+      if (meta && meta.layer2.length && !meta.layer2.some((c) => state.selectedL2.has(c))) return false;
       if (frequency < state.minFrequency) return false;
 
       return true;
@@ -1845,6 +2089,8 @@ function buildGraph() {
       id: tag,
       label: tag,
       category: meta.category || "unknown",
+      layer1: meta.layer1 || "",
+      layer2: meta.layer2 || [],
       description: meta.description || "",
       frequency: state.frequencyByTag.get(tag) || 0
     };
@@ -2028,6 +2274,15 @@ function drawNetwork(graph) {
   currentSim = null;
   let compareLayout = null;
 
+  let closeLayout = null;
+  if (graph.closeness) {
+    closeLayout = closenessLayout(nodes, width, height);
+    for (const n of nodes) {
+      if (n.closeness?.isFocus) { n.tx = closeLayout.cx; n.ty = closeLayout.cy; }
+      if (n.fx == null) { n.x = n.tx + (Math.random() - 0.5) * 20; n.y = n.ty + (Math.random() - 0.5) * 20; }
+    }
+  }
+
   if (graph.mode === "comparison") {
     compareLayout = compareAnchorPositions(graph.compareTags, width, height);
     for (const n of nodes) {
@@ -2060,6 +2315,8 @@ function drawNetwork(graph) {
     // shared tags settle between anchors and unique ones float outside, just
     // like in the main network. (Never pass null to strength: that turns it off.)
     if (isCompare) force.strength((l) => 0.5 / Math.max(1, (l.target.comparisonSubset || [1]).length));
+    // In the closeness view the edges are only drawn; position comes from closeness.
+    if (graph.closeness) force.strength(0);
     return force;
   })())
   .force("charge", d3.forceManyBody().strength((d) => {
@@ -2081,7 +2338,14 @@ function drawNetwork(graph) {
     }
   });
 
-  if (isClusters) {
+  if (graph.closeness) {
+    simulation
+      .force("charge", d3.forceManyBody().strength(-25))
+      .force("collision", d3.forceCollide().radius((d) => nodeRadius(d) + 3))
+      .force("x", d3.forceX((d) => d.tx).strength((d) => (d.closeness?.isFocus ? 1 : 0.5)))
+      .force("y", d3.forceY((d) => d.ty).strength((d) => (d.closeness?.isFocus ? 1 : 0.5)));
+    drawClosenessGuides(closeLayout);
+  } else if (isClusters) {
     const layout = { k: Math.max(1, graph.clusterCount) };
     simulation.__clusterLayout = layout;
     const cx = width / 2;
@@ -2125,6 +2389,10 @@ function drawNetwork(graph) {
       return "#999";
     })
     .attr("stroke-opacity", (d) => {
+      if (graph.closeness) {
+        const f = graph.closeness.focus;
+        return getLinkName(d.source) === f || getLinkName(d.target) === f ? 0.22 : 0.05;
+      }
       if (isClusters && !workNet) return Math.min(0.5, 0.06 + d.weight * 0.04);
       return isCompare ? 0.32 : workNet ? 0.4 : 0.45;
     })
@@ -2210,7 +2478,9 @@ function drawNetwork(graph) {
     .attr("stroke", (d) => nodeStroke(d))
     .attr("stroke-width", (d) => nodeStrokeWidth(d));
 
-  if (graph.mode === "worknet") {
+  if (graph.closeness) node.style("opacity", (d) => (d.closeness?.sparse ? 0.35 : 1));
+
+  if (graph.mode === "worknet" || !graph.mode) {
     node.append("g").attr("class", "node-pie");
     node.each(function (d) { renderNodePie(d3.select(this), d); });
   }
@@ -2368,6 +2638,8 @@ function isCompareAnchor(id) {
 }
 
 function nodeRadius(d) {
+  // Closeness view: smaller nodes so the wedges have room.
+  if (d.closeness) return d.closeness.isFocus ? 14 : 3.5 + Math.sqrt(d.frequency || 1) * 1.5;
   // Work network: size by how many other works a work is linked to.
   if (d.degree != null) return 5 + Math.sqrt(d.degree) * 2.6;
   if (d.type === "work" && d.comparisonGroup !== "anchor") return 6.5;
@@ -2389,15 +2661,57 @@ function highlightMatches(d) {
 // slice per hashtag, so no single colour hides the others.
 const pieArc = d3.arc().innerRadius(0);
 
+// Slice colours for a node: highlighted hashtags in the work network, or the
+// layer-2 categories of a hashtag with more than one.
+function nodePieColors(d) {
+  const g = state.currentGraph;
+  if (!g) return [];
+  if (g.mode === "worknet") {
+    const hits = highlightMatches(d);
+    return hits.length > 1 ? hits.map((t) => state.highlightTags.get(t)) : [];
+  }
+  if (usesLayerColors() && state.colorBy === "l2" && d.layer2 && d.layer2.length > 1) {
+    return d.layer2.map(layer2Color);
+  }
+  return [];
+}
+
+function drawClosenessGuides(L) {
+  const g = graphLayer.insert("g", ":first-child").attr("class", "cl-guides");
+  const rings = [
+    { score: 2, label: "×4" }, { score: 1, label: "×2" }, { score: 0, label: "same rate", main: true },
+    { score: -1, label: "×½" }, { score: -2, label: "×¼" }
+  ];
+  g.selectAll("circle").data(rings).join("circle")
+    .attr("cx", L.cx).attr("cy", L.cy).attr("r", (d) => L.radiusFor(d.score))
+    .attr("fill", "none").attr("stroke", (d) => (d.main ? "#8a817c" : "#d6cfcb"))
+    .attr("stroke-dasharray", (d) => (d.main ? "5 4" : "2 4")).attr("stroke-width", (d) => (d.main ? 1.4 : 1));
+  g.selectAll("text.cl-ring").data(rings).join("text").attr("class", "cl-ring")
+    .attr("x", L.cx + 4).attr("y", (d) => L.cy - L.radiusFor(d.score) - 3).text((d) => d.label);
+  for (const w of L.wedges) {
+    g.append("line").attr("class", "cl-wedge")
+      .attr("x1", L.cx + Math.cos(w.start) * L.R * 0.1).attr("y1", L.cy + Math.sin(w.start) * L.R * 0.1)
+      .attr("x2", L.cx + Math.cos(w.start) * L.R * 1.04).attr("y2", L.cy + Math.sin(w.start) * L.R * 1.04);
+    const mid = w.start + w.span / 2;
+    const lx = L.cx + Math.cos(mid) * L.R * 1.1;
+    const ly = L.cy + Math.sin(mid) * L.R * 1.1;
+    g.append("text").attr("class", "cl-wedge-label")
+      .attr("x", lx).attr("y", ly)
+      .attr("text-anchor", Math.cos(mid) > 0.2 ? "start" : Math.cos(mid) < -0.2 ? "end" : "middle")
+      .attr("fill", state.colorBy === "l2" ? layer2Color(w.key) : categoryColor(w.key))
+      .text(`${state.colorBy === "l2" ? w.key : formatCategory(w.key).split(" · ")[0]} (${w.members.length})`);
+  }
+}
+
 function renderNodePie(nodeSel, d) {
-  const hits = highlightMatches(d);
+  const colors = nodePieColors(d);
   const r = circleRadius(d) - 0.6;
-  const slices = hits.length > 1 ? d3.pie().value(1).sort(null)(hits) : [];
+  const slices = colors.length > 1 ? d3.pie().value(1).sort(null)(colors) : [];
   nodeSel.select("g.node-pie").selectAll("path")
     .data(slices)
     .join("path")
     .attr("d", (s) => pieArc.outerRadius(r)(s))
-    .attr("fill", (s) => state.highlightTags.get(s.data))
+    .attr("fill", (s) => s.data)
     .attr("stroke", "#ffffff")
     .attr("stroke-width", 0.6);
   // Keep the outline ring visible on top of the slices.
@@ -2408,6 +2722,7 @@ function renderNodePie(nodeSel, d) {
 
 function nodeStroke(d) {
   if (currentPins().has(d.id)) return "#111111";
+  if (d.closeness?.isFocus) return "#111111";
   const graph = state.currentGraph;
   if (graph && graph.mode === "clusters") {
     if (d.id === state.analysis.focus) return "#111111";
@@ -2422,7 +2737,7 @@ function nodeStroke(d) {
 }
 
 function nodeStrokeWidth(d) {
-  if (currentPins().has(d.id) || isCompareAnchor(d.id)) return 3;
+  if (currentPins().has(d.id) || isCompareAnchor(d.id) || d.closeness?.isFocus) return 3;
   const graph = state.currentGraph;
   if (graph && graph.mode === "clusters") return d.id === state.analysis.focus ? 3.5 : graph.kind === "work" ? 1.1 : 1.5;
   if (graph && graph.mode === "worknet") return 1.1;
@@ -2458,15 +2773,33 @@ function nodeColor(d) {
     return "#cfcfcf";
   }
 
+  if (usesLayerColors() && state.colorBy === "l2" && d.layer2 && d.layer2.length) {
+    return layer2Color(d.layer2[0]);
+  }
   return categoryColor(d.category);
+}
+
+// The plain hashtag network (Network tab, incl. the closeness view).
+function usesLayerColors() {
+  const g = state.currentGraph;
+  return state.lens === "tag" && state.viewMode === "full" && g && !g.mode;
 }
 
 function categoryColor(category) {
   if (category === "female_protagonist") return "#c95f7b";
   if (category === "male_protagonist") return "#4f7cac";
   if (category === "genre_plot") return "#6b8f71";
+  if (category === "relationship") return "#c9a227";
   if (category === "hybrid") return "#9b7ede";
   return "#999999";
+}
+
+function recolorNodes() {
+  graphLayer.selectAll("g.node").each(function (d) {
+    const sel = d3.select(this);
+    sel.select("circle").attr("fill", nodeColor(d)).attr("stroke", nodeStroke(d)).attr("stroke-width", nodeStrokeWidth(d));
+    if (!sel.select("g.node-pie").empty()) renderNodePie(sel, d);
+  });
 }
 
 let nodeClickTimer = null;
@@ -2644,6 +2977,22 @@ function drag(simulation) {
     .on("end", dragended);
 }
 
+function closenessInspectorHtml(node) {
+  const c = node.closeness;
+  if (!c || c.isFocus) {
+    return node.layer2 && node.layer2.length
+      ? `<p><strong>Layer 2:</strong> ${node.layer2.map((x) => `<span class="cat-dot" style="background:${layer2Color(x)}"></span>${escapeHtml(x)}`).join(", ")}</p>`
+      : "";
+  }
+  const f = state.closeness.focus;
+  return `
+    <p><strong>Layer 2:</strong> ${(node.layer2 || []).map((x) => `<span class="cat-dot" style="background:${layer2Color(x)}"></span>${escapeHtml(x)}`).join(", ") || "–"}</p>
+    <p><strong>Closeness to ${escapeHtml(f)}</strong><br>
+      With ${escapeHtml(f)}: ${c.a}/${c.nf} works (${Math.round((c.a / Math.max(1, c.nf)) * 100)}%)<br>
+      Without: ${c.b}/${c.no} works (${Math.round((c.b / Math.max(1, c.no)) * 100)}%)<br>
+      Ratio: <strong>${fmtRR(c.rr)}</strong>${c.sparse ? ' <span class="small-note">(fewer than 3 works – read with care)</span>' : ""}</p>`;
+}
+
 function showNodeInspector(node) {
   console.log("SHOW INSPECTOR:", node);
   const connected = state.currentGraph.links
@@ -2676,6 +3025,7 @@ function showNodeInspector(node) {
         <div><strong>Pinned</strong><br>${currentPins().has(node.id) ? "Yes" : "No"}</div>
       </div>
 
+      ${closenessInspectorHtml(node)}
       ${
         node.comparisonGroup && node.comparisonGroup !== "anchor"
           ? `<p><strong>Comparison group:</strong> ${compareSubsetLabel(node.comparisonSubset, activeCompareSet().size)}</p>`
@@ -2864,6 +3214,10 @@ function showNodeTooltip(event, node) {
       Category: ${formatCategory(node.category)}<br>
       Frequency: ${node.frequency}<br>
       ${
+        node.closeness && !node.closeness.isFocus
+          ? `Closeness: ${fmtRR(node.closeness.rr)} (${node.closeness.a}/${node.closeness.nf} vs ${node.closeness.b}/${node.closeness.no})<br>`
+          : ""
+      }${
         node.comparisonGroup && node.comparisonGroup !== "anchor"
           ? `Group: ${compareSubsetLabel(node.comparisonSubset, activeCompareSet().size)}<br>`
           : ""

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Romance Fantasy Hashtag Network</title>
-  <link rel="stylesheet" href="css/style.css?v=15">
+  <link rel="stylesheet" href="css/style.css?v=16">
 </head>
 
 <body>
@@ -98,8 +98,18 @@
       <details class="panel-section panel-collapsible" data-modes="tag:full" open>
         <summary><h2>Filters</h2></summary>
 
-        <h3>Category</h3>
-        <div id="category-filters"></div>
+        <h3>Layer 1 · who / what</h3>
+        <div id="category-filters" class="layer-filters"></div>
+
+        <h3>Layer 2 · meaning</h3>
+        <p class="small-note">A hashtag with two layer-2 categories stays visible while either one is on.</p>
+        <div id="layer2-filters" class="layer-filters"></div>
+
+        <h3>Colour nodes by</h3>
+        <div class="color-by-row" role="radiogroup" aria-label="Colour nodes by">
+          <label><input type="radio" name="color-by" value="l2" checked> Layer 2 (split when a tag has two)</label>
+          <label><input type="radio" name="color-by" value="l1"> Layer 1</label>
+        </div>
 
         <label class="slider-label">
           Minimum frequency:
@@ -131,6 +141,31 @@
         </div>
 
       </details>
+
+      <!-- Hashtags > Network: closeness to a focus tag -->
+      <section class="panel-section" data-modes="tag:full">
+        <h2>Closeness to a Hashtag</h2>
+        <div id="cl-focus-current" class="an-focus-current"></div>
+        <label>
+          Category
+          <select id="cl-category"></select>
+        </label>
+        <label>Tag</label>
+        <div class="works-add-row">
+          <select id="cl-tag"></select>
+          <button id="cl-set" type="button">Set focus</button>
+        </div>
+        <label class="checkbox-row cl-toggle">
+          <input type="checkbox" id="cl-on"> Arrange the map by closeness to this tag
+        </label>
+        <p class="small-note">Closeness compares how often something appears in works <em>with</em> the focus tag
+          versus works <em>without</em> it (ratio = % with ÷ % without, with 0.5 added to each count as in the
+          Excel sheet so that a zero does not give an infinite ratio). Above ×1 means it is relatively more common
+          alongside the focus tag. On the map, the focus tag sits in the centre and hashtags inside the dashed ring are
+          over-represented; each wedge is one category. Faded hashtags appear in fewer than 3 works.</p>
+        <p id="cl-summary" class="small-note an-summary"></p>
+        <div id="cl-table"></div>
+      </section>
 
       <!-- Hashtag lens: Analysis -->
       <section class="panel-section" data-modes="tag:analysis">
@@ -368,6 +403,6 @@
 </div>
   
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-  <script src="js/app.js?v=15"></script>
+  <script src="js/app.js?v=16"></script>
 </body>
 </html>

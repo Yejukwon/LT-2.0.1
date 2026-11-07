@@ -1511,3 +1511,18 @@ body[data-lang="en"] .lang-en {
 .an-moved ul { margin: 6px 0 0; padding-left: 18px; max-height: 180px; overflow-y: auto; line-height: 1.6; }
 .an-move { white-space: nowrap; color: #6b625e; margin-left: 4px; }
 .an-move .cmp-dot { width: 8px; height: 8px; flex-basis: 8px; margin: 0 2px; vertical-align: middle; }
+
+/* ---- Layer filters, colour-by, closeness ---- */
+.layer-filters .checkbox-row { display: flex; align-items: center; gap: 6px; margin: 3px 0; font-size: 13px; }
+.layer-filters .cat-dot { margin-right: 0; }
+.color-by-row { display: grid; gap: 4px; font-size: 13px; }
+.color-by-row label { display: flex; align-items: center; gap: 6px; margin: 0; }
+.cl-toggle { display: flex; align-items: center; gap: 7px; margin: 10px 0 4px; font-weight: 600; font-size: 13px; }
+.cl-sub { margin: 14px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #888; font-weight: 600; }
+.cl-table td, .cl-table th { padding: 5px 6px; }
+.cl-bar { display: inline-block; height: 7px; border-radius: 4px; margin-right: 6px; vertical-align: middle; }
+.cl-bar.up { background: #c95f7b; }
+.cl-bar.down { background: #9db3c8; }
+.cl-guides .cl-ring { font-size: 10.5px; fill: #8a817c; }
+.cl-guides .cl-wedge { stroke: #e3ddd9; stroke-width: 1; }
+.cl-guides .cl-wedge-label { font-size: 12px; font-weight: 700; paint-order: stroke; stroke: #f3f0ee; stroke-width: 4px; }
