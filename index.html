@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Romance Fantasy Hashtag Network</title>
-  <link rel="stylesheet" href="css/style.css?v=16">
+  <link rel="stylesheet" href="css/style.css?v=17">
 </head>
 
 <body>
@@ -158,11 +158,16 @@
         <label class="checkbox-row cl-toggle">
           <input type="checkbox" id="cl-on"> Arrange the map by closeness to this tag
         </label>
+        <div class="color-by-row cl-layout" role="radiogroup" aria-label="Closeness layout">
+          <label><input type="radio" name="cl-layout" value="network" checked> Network: the closer a tag, the shorter its line to the focus</label>
+          <label><input type="radio" name="cl-layout" value="wedges"> Category wedges</label>
+        </div>
         <p class="small-note">Closeness compares how often something appears in works <em>with</em> the focus tag
           versus works <em>without</em> it (ratio = % with ÷ % without, with 0.5 added to each count as in the
           Excel sheet so that a zero does not give an infinite ratio). Above ×1 means it is relatively more common
-          alongside the focus tag. On the map, the focus tag sits in the centre and hashtags inside the dashed ring are
-          over-represented; each wedge is one category. Faded hashtags appear in fewer than 3 works.</p>
+          alongside the focus tag. Pressing Set focus rearranges the map: the focus tag sits in the centre and each hashtag's
+          distance from it follows its closeness, so hashtags inside the dashed ring are over-represented.
+          Hashtags that often appear together still sit side by side. Faded hashtags appear in fewer than 3 works.</p>
         <p id="cl-summary" class="small-note an-summary"></p>
         <div id="cl-table"></div>
       </section>
@@ -403,6 +408,6 @@
 </div>
   
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-  <script src="js/app.js?v=16"></script>
+  <script src="js/app.js?v=17"></script>
 </body>
 </html>

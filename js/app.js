@@ -12,7 +12,8 @@ const state = {
   // Node colouring in the hashtag network: "l2" (pie of layer-2 categories) or "l1"
   colorBy: "l2",
   // Closeness view in Hashtags > Network
-  closeness: { on: false, focus: "능력녀" },
+  // layout: "network" (free network; distance to the focus = closeness) or "wedges"
+  closeness: { on: false, focus: "능력녀", layout: "network" },
   minFrequency: 1,
   minWeight: 1,
   excludedTags: new Set(),
@@ -1978,9 +1979,15 @@ function setupClosenessControls() {
   d3.select("#cl-category").on("change", fillTags);
   d3.select("#cl-set").on("click", () => {
     const tag = d3.select("#cl-tag").property("value");
-    if (!tag || tag === state.closeness.focus) return;
+    if (!tag || (tag === state.closeness.focus && state.closeness.on)) return;
     state.closeness.focus = tag;
+    state.closeness.on = true;
+    d3.select("#cl-on").property("checked", true);
     updateNetwork();
+  });
+  d3.selectAll('input[name="cl-layout"]').on("change", function () {
+    state.closeness.layout = this.value;
+    if (state.closeness.on) updateNetwork();
   });
   d3.select("#cl-on").property("checked", state.closeness.on).on("change", function () {
     state.closeness.on = this.checked;
@@ -2039,6 +2046,16 @@ function closenessLayout(nodes, width, height) {
     });
   const total = d3.sum(groups, (g) => g[1].length) || 1;
   const radiusFor = (score) => R * Math.max(0.12, Math.min(1, 0.55 - 0.15 * score));
+  if (state.closeness.layout !== "wedges") {
+    for (const n of nodes) {
+      if (n.closeness?.isFocus) continue;
+      const ang = Math.random() * 2 * Math.PI;
+      const r = radiusFor(n.closeness.score);
+      n.tx = cx + Math.cos(ang) * r;
+      n.ty = cy + Math.sin(ang) * r;
+    }
+    return { cx, cy, R, wedges: [], radiusFor, network: true };
+  }
   const wedges = [];
   let start = -Math.PI / 2;
   for (const [key, members] of groups) {
@@ -2315,8 +2332,18 @@ function drawNetwork(graph) {
     // shared tags settle between anchors and unique ones float outside, just
     // like in the main network. (Never pass null to strength: that turns it off.)
     if (isCompare) force.strength((l) => 0.5 / Math.max(1, (l.target.comparisonSubset || [1]).length));
-    // In the closeness view the edges are only drawn; position comes from closeness.
-    if (graph.closeness) force.strength(0);
+    // Closeness view: distance to the focus comes from closeness (radial force),
+    // so links to the focus carry no pull. In the network layout the other links
+    // pull gently, so tags that appear together sit side by side.
+    if (graph.closeness) {
+      const f = graph.closeness.focus;
+      const net = state.closeness.layout !== "wedges";
+      force.distance(70).strength((l) => {
+        if (!net) return 0;
+        if (getLinkName(l.source) === f || getLinkName(l.target) === f) return 0;
+        return Math.min(0.02, 0.0025 * l.weight);
+      });
+    }
     return force;
   })())
   .force("charge", d3.forceManyBody().strength((d) => {
@@ -2338,7 +2365,19 @@ function drawNetwork(graph) {
     }
   });
 
-  if (graph.closeness) {
+  if (graph.closeness && closeLayout.network) {
+    const L = closeLayout;
+    simulation
+      .force("center", null)
+      .force("charge", d3.forceManyBody().strength(-140))
+      .force("collision", d3.forceCollide().radius((d) => nodeRadius(d) + 4))
+      // the length of each tag's line to the centre = its closeness
+      .force("radial", d3.forceRadial((d) => (d.closeness?.isFocus ? 0 : L.radiusFor(d.closeness.score)), L.cx, L.cy)
+        .strength((d) => (d.closeness?.isFocus ? 1 : 0.85)))
+      .force("x", d3.forceX(L.cx).strength((d) => (d.closeness?.isFocus ? 1 : 0)))
+      .force("y", d3.forceY(L.cy).strength((d) => (d.closeness?.isFocus ? 1 : 0)));
+    drawClosenessGuides(closeLayout);
+  } else if (graph.closeness) {
     simulation
       .force("charge", d3.forceManyBody().strength(-25))
       .force("collision", d3.forceCollide().radius((d) => nodeRadius(d) + 3))

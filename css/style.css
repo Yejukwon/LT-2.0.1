@@ -1526,3 +1526,4 @@ body[data-lang="en"] .lang-en {
 .cl-guides .cl-ring { font-size: 10.5px; fill: #8a817c; }
 .cl-guides .cl-wedge { stroke: #e3ddd9; stroke-width: 1; }
 .cl-guides .cl-wedge-label { font-size: 12px; font-weight: 700; paint-order: stroke; stroke: #f3f0ee; stroke-width: 4px; }
+.cl-layout { margin: 2px 0 8px 22px; }
