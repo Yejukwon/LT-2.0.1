@@ -1546,3 +1546,6 @@ body[data-lang="en"] .lang-en {
 .an-silbar.active .an-silbar-k { font-weight: 700; color: #2b2624; }
 #an-dendrogram { margin-top: 4px; }
 .an-dendro circle { cursor: default; }
+/* map node highlighted from the dendrogram */
+g.node.dendro-hl circle { stroke: #111 !important; stroke-width: 4px !important; }
+g.node.dendro-hl text { font-weight: 700; display: inline !important; }

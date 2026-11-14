@@ -2154,10 +2154,44 @@ function drawDendrogram(res) {
     const wk = state.worksById.get(item) || {};
     return `#${wk.rank} ${wk.title || item}`;
   };
-  svgD.selectAll("circle").data(order).join("circle")
+  const leaves = svgD.selectAll("circle").data(order).join("circle")
     .attr("cx", (id) => xOf.get(id)).attr("cy", y(0)).attr("r", 2)
-    .attr("fill", (id) => clusterColor(res.clusterOf.get(w.items[id])))
-    .append("title").text((id) => label(id));
+    .attr("fill", (id) => clusterColor(res.clusterOf.get(w.items[id])));
+
+  // Wide invisible hover strips (the dots are too small to hit): show the
+  // title, highlight it on the map, and open the work card on click.
+  const step = (width - pad.l - pad.r) / n;
+  const tip = d3.select("#node-tooltip");
+  const placeTip = (event) => {
+    const el = tip.node();
+    let x = event.clientX + 14;
+    if (x + el.offsetWidth > window.innerWidth - 8) x = event.clientX - el.offsetWidth - 14;
+    tip.style("left", `${x}px`).style("top", `${event.clientY + 14}px`);
+  };
+  const mapNode = (id) => graphLayer.selectAll("g.node").filter((d) => d.id === w.items[id]);
+  svgD.selectAll("rect.an-leaf-hit").data(order).join("rect")
+    .attr("class", "an-leaf-hit")
+    .attr("x", (id) => xOf.get(id) - step / 2).attr("y", 0)
+    .attr("width", step).attr("height", height)
+    .attr("fill", "transparent")
+    .style("cursor", res.kind === "work" ? "pointer" : "default")
+    .on("mouseenter", function (event, id) {
+      const c = res.clusterOf.get(w.items[id]);
+      leaves.filter((l) => l === id).attr("r", 4.5).attr("stroke", "#2b2624").attr("stroke-width", 1.2);
+      tip.classed("hidden", false)
+        .html(`<strong>${escapeHtml(label(id))}</strong><br>Cluster ${c + 1}${res.kind === "work" ? " · click to open" : ""}`);
+      placeTip(event);
+      mapNode(id).classed("dendro-hl", true).raise();
+    })
+    .on("mousemove", (event) => placeTip(event))
+    .on("mouseleave", function (event, id) {
+      leaves.filter((l) => l === id).attr("r", 2).attr("stroke", null);
+      tip.classed("hidden", true);
+      mapNode(id).classed("dendro-hl", false);
+    })
+    .on("click", (event, id) => {
+      if (res.kind === "work") openWorkCard(w.items[id]);
+    });
 }
 
 function csvEscape(v) {
