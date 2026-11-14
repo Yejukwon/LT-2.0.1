@@ -41,7 +41,9 @@ const state = {
     algorithm: "louvain", k: null },
   // Dimensions tab (hashtag lens): hashtags placed on PCA / correspondence-analysis axes
   // method "pca" | "ca"; scope "all" | "focus"; x, y = axis indices (0 = first axis)
-  dims: { method: "pca", scope: "all", focus: "능력녀", minWorks: 3, includeRomance: false, x: 0, y: 1, colorBy: "l2", result: null },
+  dims: { method: "pca", scope: "all", focus: "능력녀", minWorks: 3, includeRomance: false, x: 0, y: 1, colorBy: "l2", result: null,
+    // display-only category filters (null = all shown); the axes are not recalculated
+    showL1: null, showL2: null },
   worksListVisible: true,
   currentGraph: null
 };
@@ -4033,6 +4035,45 @@ function buildDimsGraph() {
   return { mode: "dims", nodes, links: [], result: r };
 }
 
+// A hashtag is shown when its layer-1 category is on and at least one of its
+// layer-2 categories is on (same rule as the Network filters).
+function dimsVisible(tag) {
+  const m = state.metaByTag.get(tag) || {};
+  const { showL1, showL2 } = state.dims;
+  if (showL1 && !showL1.has(m.category || "unknown")) return false;
+  if (showL2 && (m.layer2 || []).length && !m.layer2.some((c) => showL2.has(c))) return false;
+  return true;
+}
+
+function applyDimsVisibility() {
+  graphLayer.selectAll("g.dm-node").style("display", (d) => (dimsVisible(d.id) ? null : "none"));
+}
+
+function renderDimsCategoryFilters() {
+  const present1 = new Set(state.metadata.map((m) => m.category));
+  const l1 = [...L1_ORDER.filter((c) => present1.has(c)), ...Array.from(present1).filter((c) => !L1_ORDER.includes(c)).sort()];
+  const present2 = new Set(state.metadata.flatMap((m) => m.layer2));
+  const l2 = [...L2_ORDER.filter((c) => present2.has(c)), ...Array.from(present2).filter((c) => !L2_ORDER.includes(c)).sort()];
+  if (!state.dims.showL1) state.dims.showL1 = new Set(l1);
+  if (!state.dims.showL2) state.dims.showL2 = new Set(l2);
+  const build = (host, items, set, color, label) => {
+    const rows = d3.select(host).selectAll("label").data(items).join("label").attr("class", "checkbox-row");
+    rows.each(function (c) {
+      const row = d3.select(this);
+      row.html("");
+      row.append("input").attr("type", "checkbox").property("checked", set.has(c)).on("change", function () {
+        if (this.checked) set.add(c); else set.delete(c);
+        applyDimsVisibility();
+        renderDimsPanel();
+      });
+      row.append("span").attr("class", "cat-dot").style("background", color(c));
+      row.append("span").text(label(c));
+    });
+  };
+  build("#dm-l1", l1, state.dims.showL1, categoryColor, formatCategory);
+  build("#dm-l2", l2, state.dims.showL2, layer2Color, (c) => c);
+}
+
 function dimsNodeColor(d) {
   if (state.dims.colorBy === "l2" && d.layer2 && d.layer2.length) return layer2Color(d.layer2[0]);
   return categoryColor(d.category);
@@ -4119,6 +4160,7 @@ function drawDimensions(graph, width, height) {
     .attr("stroke-width", 1.2);
   node.append("g").attr("class", "node-pie");
   node.each(function (d) { renderNodePie(d3.select(this), d); });
+  node.style("display", (d) => (dimsVisible(d.id) ? null : "none"));
   node.append("text").attr("class", "node-label")
     .attr("x", (d) => dimsRadius(d) + 3).attr("y", 4)
     .attr("font-size", "11.5px")
@@ -4218,6 +4260,13 @@ function setupDimsControls() {
     renderDimsPanel();
   });
   d3.select("#dm-download").on("click", downloadDimsCSV);
+  renderDimsCategoryFilters();
+  d3.select("#dm-cats-all").on("click", () => {
+    state.dims.showL1 = null; state.dims.showL2 = null;
+    renderDimsCategoryFilters();
+    applyDimsVisibility();
+    renderDimsPanel();
+  });
 }
 
 function updateDimsTagDropdown() {
@@ -4299,7 +4348,7 @@ function renderDimsPanel() {
   // The hashtags at each end of the two axes on the map.
   const N_POLE = 8;
   const block = (k) => {
-    const items = r.tags.map((t, i) => ({ t, v: r.coords[i][k], f: r.freq.get(t) }));
+    const items = r.tags.map((t, i) => ({ t, v: r.coords[i][k], f: r.freq.get(t) })).filter((d) => dimsVisible(d.t));
     const pos = items.filter((d) => d.v > 0).sort((a, b) => b.v - a.v).slice(0, N_POLE);
     const neg = items.filter((d) => d.v < 0).sort((a, b) => a.v - b.v).slice(0, N_POLE);
     const list = (arr) => arr.map((d) => {
@@ -4315,7 +4364,9 @@ function renderDimsPanel() {
         <div><div class="an-sub">− end</div><ol>${list(neg)}</ol></div>
       </div></div>`;
   };
-  poles.html(block(state.dims.x) + block(state.dims.y));
+  const nHidden = r.tags.filter((t) => !dimsVisible(t)).length;
+  poles.html((nHidden ? `<p class="small-note dm-hidden-note">${nHidden} of ${r.tags.length} hashtags are hidden by the category checkboxes; the lists below skip them.</p>` : "") +
+    block(state.dims.x) + block(state.dims.y));
   poles.selectAll("li").on("mouseenter", function () {
     const t = this.dataset.tag;
     graphLayer.selectAll("g.dm-node").classed("dm-hl", (d) => d.id === t).filter((d) => d.id === t).raise();

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Romance Fantasy Hashtag Network</title>
-  <link rel="stylesheet" href="css/style.css?v=21">
+  <link rel="stylesheet" href="css/style.css?v=22">
 </head>
 
 <body>
@@ -331,6 +331,16 @@
           </select>
         </label>
         <label class="checkbox-row"><input type="checkbox" id="dm-romance"> Include 로맨스판타지 (on almost every work)</label>
+        <details class="dm-cats" open>
+          <summary>Show categories</summary>
+          <p class="small-note">Display only: hidden hashtags are still part of the calculation, so the axes stay the same.
+            A hashtag is shown when its layer-1 category is on and at least one of its layer-2 categories is on.</p>
+          <div class="an-sub">Layer 1 (who / what)</div>
+          <div id="dm-l1" class="checkbox-group"></div>
+          <div class="an-sub">Layer 2 (meaning)</div>
+          <div id="dm-l2" class="checkbox-group"></div>
+          <button id="dm-cats-all" type="button" class="secondary-button">Show all</button>
+        </details>
         <div class="an-field-label">Colour</div>
         <div class="color-by-row" role="radiogroup" aria-label="Colour hashtags by">
           <label><input type="radio" name="dm-color" value="l2" checked> Layer 2 (meaning)</label>
@@ -495,6 +505,6 @@
 </div>
   
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-  <script src="js/app.js?v=21"></script>
+  <script src="js/app.js?v=22"></script>
 </body>
 </html>

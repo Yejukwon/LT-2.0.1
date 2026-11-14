@@ -1592,3 +1592,8 @@ g.node.dendro-hl text { font-weight: 700; display: inline !important; }
 .dm-node.dm-hl circle { stroke: #111; stroke-width: 3; }
 .dm-inspect-table { margin-top: 10px; }
 .dm-axis-sub { font-size: 11.5px; fill: #8a817c; }
+.dm-cats { margin: 10px 0 8px; padding: 8px 10px; border: 1px solid #e6e1dd; border-radius: 8px; }
+.dm-cats > summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+.dm-cats .an-sub { margin-top: 8px; }
+.dm-cats .secondary-button { margin-top: 8px; }
+.dm-hidden-note { margin: 8px 0 0; padding: 6px 8px; background: #f5f0ec; border-radius: 6px; }
