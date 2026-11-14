@@ -1527,3 +1527,22 @@ body[data-lang="en"] .lang-en {
 .cl-guides .cl-wedge { stroke: #e3ddd9; stroke-width: 1; }
 .cl-guides .cl-wedge-label { font-size: 12px; font-weight: 700; paint-order: stroke; stroke: #f3f0ee; stroke-width: 4px; }
 .cl-layout { margin: 2px 0 8px 22px; }
+
+/* ② Clusters: method switch, k, silhouette bars, dendrogram */
+.an-field-label { font-size: 13px; font-weight: 600; margin: 4px 0 6px; }
+.an-alg-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px; border-radius: 8px; background: #ebe6e3; }
+.an-alg-switch button { width: auto; border: none; border-radius: 6px; background: transparent; padding: 7px 6px; font-size: 13px; font-weight: 600; color: #6b625e; }
+.an-alg-switch button.active { background: #fff; color: #1f1b19; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15); }
+.an-alg-help { margin: 6px 0 10px; line-height: 1.5; }
+#an-k-row.hidden, #an-jaccard-ward-note.hidden, #an-q-explain.hidden, #an-ward-explain.hidden { display: none; }
+#an-k-match:disabled { opacity: 0.45; cursor: default; }
+.an-silbar-label { margin-top: 12px; text-transform: none; letter-spacing: 0; font-size: 12px; }
+.an-silbars { display: flex; align-items: flex-end; gap: 4px; height: 66px; }
+.an-silbar { width: auto; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 3px; border: none; background: transparent; padding: 0; height: 100%; }
+.an-silbar-fill { width: 100%; max-width: 22px; background: #cfc6c1; border-radius: 3px 3px 0 0; }
+.an-silbar.active .an-silbar-fill { background: #2b2624; }
+.an-silbar:hover .an-silbar-fill { background: #8a817c; }
+.an-silbar-k { font-size: 11px; color: #6b625e; }
+.an-silbar.active .an-silbar-k { font-weight: 700; color: #2b2624; }
+#an-dendrogram { margin-top: 4px; }
+.an-dendro circle { cursor: default; }

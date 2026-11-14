@@ -36,7 +36,9 @@ const state = {
   // hidden: hashtags left out of both ① and ② (로맨스판타지 by default)
   analysis: { focus: "능력녀", method: "works", jaccard: 0.2, hidden: new Set(["로맨스판타지"]), result: null, sort: "together",
     runSeed: null, nextSeed: 11, align: false, tableCats: null,
-    clusterCats: null, expanded: new Set() },
+    clusterCats: null, expanded: new Set(),
+    // clustering method for ② Clusters: "louvain" or "ward"; k = Ward's number of clusters (null = match Louvain)
+    algorithm: "louvain", k: null },
   worksListVisible: true,
   currentGraph: null
 };
@@ -576,7 +578,7 @@ const MODE_HELP = {
   "tag:full": "Explore the whole hashtag network. Use the filters to hide tags or thin out weak links.",
   "tag:comparison": "Pick two or more hashtags to see which tags sit near each one, and which they share.",
   "tag:works": "Pick hashtags to list and map the works that carry them.",
-  "tag:analysis": "Pick a focus hashtag. ① shows which hashtags it is paired with; ② splits the network into clusters with the Louvain method and reports modularity.",
+  "tag:analysis": "Pick a focus hashtag. ① shows which hashtags it is paired with; ② groups works or hashtags into clusters with Louvain (network) or Ward (hierarchical) and shows how clear the split is.",
   "work:full": "Each node is a work. Works are linked when their hashtags overlap, and more similar works sit closer together; bigger nodes are linked to more works. Hover for the full title, click for details.",
   "work:comparison": "Pick two or more works to see which hashtags they share and which belong to only one of them."
 };
@@ -1257,6 +1259,132 @@ function louvainRuns(nodes, edges, runs = 10) {
 }
 
 
+// ---- Hierarchical clustering: Ward's method ----
+// Mirrors scipy.cluster.hierarchy.linkage(X, "ward") (nearest-neighbour chain,
+// then merges sorted by height and relabelled), so results, including how ties
+// are broken, match a Python re-run. Ids 0..n-1 are items; n+i is the cluster
+// made by merge i.
+function wardLinkage(vectors) {
+  const n = vectors.length;
+  if (n < 2) return { n, merges: [] };
+  const D = new Float64Array(n * n);
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      let s = 0;
+      const a = vectors[i], b = vectors[j];
+      for (let t = 0; t < a.length; t++) { const d = a[t] - b[t]; s += d * d; }
+      D[i * n + j] = D[j * n + i] = Math.sqrt(s);
+    }
+  }
+  const size = new Array(n).fill(1);
+  const chain = [];
+  const raw = [];
+  for (let step = 0; step < n - 1; step++) {
+    if (!chain.length) {
+      for (let i = 0; i < n; i++) if (size[i] > 0) { chain.push(i); break; }
+    }
+    let x, y, current;
+    for (;;) {
+      x = chain[chain.length - 1];
+      if (chain.length > 1) { y = chain[chain.length - 2]; current = D[x * n + y]; } else current = Infinity;
+      for (let i = 0; i < n; i++) {
+        if (size[i] === 0 || i === x) continue;
+        const d = D[x * n + i];
+        if (d < current) { current = d; y = i; }
+      }
+      if (chain.length > 1 && y === chain[chain.length - 2]) break;
+      chain.push(y);
+    }
+    chain.pop(); chain.pop();
+    if (x > y) [x, y] = [y, x];
+    const nx = size[x], ny = size[y];
+    raw.push({ x, y, height: current, size: nx + ny });
+    size[x] = 0;
+    size[y] = nx + ny;
+    for (let i = 0; i < n; i++) {
+      const ni = size[i];
+      if (ni === 0 || i === y) continue;
+      const dxi = D[i * n + x], dyi = D[i * n + y];
+      // same arithmetic order as scipy's _ward(), so near-ties resolve identically
+      const t = 1.0 / (nx + ny + ni);
+      const d = Math.sqrt((ni + nx) * t * dxi * dxi + (ni + ny) * t * dyi * dyi - ni * t * current * current);
+      D[i * n + y] = D[y * n + i] = d;
+    }
+  }
+  // stable sort by height, then relabel with union–find (scipy's `label`)
+  const order = raw.map((r, i) => i).sort((p, q) => raw[p].height - raw[q].height || p - q);
+  const parent = new Map();
+  const find = (v) => { while (parent.has(v)) v = parent.get(v); return v; };
+  const merges = order.map((idx, m) => {
+    const r = raw[idx];
+    const rx = find(r.x), ry = find(r.y);
+    const a = Math.min(rx, ry), b = Math.max(rx, ry);
+    parent.set(rx, n + m);
+    parent.set(ry, n + m);
+    return { a, b, height: r.height, size: r.size };
+  });
+  return { n, merges };
+}
+
+// Flat clusters like scipy's fcluster(Z, k, "maxclust"): cut at the lowest
+// height that leaves at most k clusters (tied heights merge together, so the
+// result can have fewer than k clusters).
+function cutTree(tree, k) {
+  const { n, merges } = tree;
+  let applied = 0;
+  if (k < n) {
+    const t = merges[n - k - 1].height;
+    while (applied < merges.length && merges[applied].height <= t) applied++;
+  }
+  const parent = new Map();
+  const find = (x) => { while (parent.has(x)) x = parent.get(x); return x; };
+  for (let m = 0; m < applied; m++) {
+    parent.set(merges[m].a, n + m);
+    parent.set(merges[m].b, n + m);
+  }
+  const ids = new Map();
+  const labels = [];
+  for (let i = 0; i < n; i++) {
+    const r = find(i);
+    if (!ids.has(r)) ids.set(r, ids.size);
+    labels.push(ids.get(r));
+  }
+  return labels;
+}
+
+// Mean silhouette (Euclidean). Items alone in their cluster score 0, as in scikit-learn.
+function silhouetteScore(vectors, labels) {
+  const n = vectors.length;
+  const k = new Set(labels).size;
+  if (k < 2 || k >= n) return NaN;
+  const D = [];
+  for (let i = 0; i < n; i++) {
+    D.push(new Float64Array(n));
+    for (let j = 0; j < i; j++) {
+      let s = 0;
+      for (let t = 0; t < vectors[i].length; t++) { const d = vectors[i][t] - vectors[j][t]; s += d * d; }
+      D[i][j] = Math.sqrt(s);
+      D[j][i] = D[i][j];
+    }
+  }
+  let total = 0;
+  for (let i = 0; i < n; i++) {
+    const sums = new Map(), counts = new Map();
+    for (let j = 0; j < n; j++) {
+      if (i === j) continue;
+      sums.set(labels[j], (sums.get(labels[j]) || 0) + D[i][j]);
+      counts.set(labels[j], (counts.get(labels[j]) || 0) + 1);
+    }
+    if (!counts.get(labels[i])) continue; // singleton cluster -> 0
+    const a = sums.get(labels[i]) / counts.get(labels[i]);
+    let b = Infinity;
+    for (const [c, s] of sums) if (c !== labels[i]) b = Math.min(b, s / counts.get(c));
+    total += (b - a) / Math.max(a, b);
+  }
+  return total / n;
+}
+
+
 // =====================================================================
 // Analysis tab: ① co-occurrence with a focus tag, ② community detection
 // =====================================================================
@@ -1329,6 +1457,7 @@ function runAnalysis() {
   let edges = [];
   let kind = "tag";
   let freqWithin = new Map();
+  let workSetById = new Map(); // hashtags of each analysed work (after hiding)
 
   if (a.method === "works") {
     kind = "work";
@@ -1339,6 +1468,7 @@ function runAnalysis() {
       return [w.work_id, s];
     }));
     nodes = works.map((w) => w.work_id);
+    workSetById = sets;
     for (let i = 0; i < works.length; i++) {
       for (let j = i + 1; j < works.length; j++) {
         const sa = sets.get(nodes[i]);
@@ -1358,6 +1488,7 @@ function runAnalysis() {
       if (a.method === "tags") s.delete(a.focus);
       else if (state.tagsByWork.get(w.work_id).has(a.focus)) s.add(a.focus); // never drop the focus itself
       const tags = Array.from(s).sort();
+      workSetById.set(w.work_id, s);
       for (const t of tags) freqWithin.set(t, (freqWithin.get(t) || 0) + 1);
       for (let i = 0; i < tags.length; i++) {
         for (let j = i + 1; j < tags.length; j++) {
@@ -1381,10 +1512,27 @@ function runAnalysis() {
   // Order clusters by size; nodes with no links at all are "unlinked".
   const degree = new Map(nodes.map((n) => [n, 0]));
   for (const e of edges) { degree.set(e.source, degree.get(e.source) + 1); degree.set(e.target, degree.get(e.target) + 1); }
+  const louvainK = new Set(nodes.filter((n) => degree.get(n)).map((n) => batch.communities.get(n))).size;
+
+  // Which grouping to show: Louvain (default) or Ward
+  let assign = r.communities;
+  let included = (n) => degree.get(n) > 0;
+  let ward = null;
+  if (a.algorithm === "ward") {
+    ward = runWard(kind, nodes, workSetById, freqWithin, louvainK);
+    assign = ward.assign;
+    included = (n) => ward.assign.has(n);
+    // agreement with Louvain (best of 10) on items both methods cluster
+    const lv = new Map(nodes.filter((n) => degree.get(n)).map((n) => [n, batch.communities.get(n)]));
+    const common = nodes.filter((n) => lv.has(n) && ward.assign.has(n));
+    ward.nmiLouvain = partitionNMI(common, lv, ward.assign);
+    ward.nmiItems = common.length;
+  }
+
   const groups = new Map();
   for (const n of nodes) {
-    if (!degree.get(n)) continue;
-    const c = r.communities.get(n);
+    if (!included(n)) continue;
+    const c = assign.get(n);
     if (!groups.has(c)) groups.set(c, []);
     groups.get(c).push(n);
   }
@@ -1426,7 +1574,7 @@ function runAnalysis() {
   }
   const clusterOf = new Map();
   ordered.forEach((members, i) => members.forEach((n) => clusterOf.set(n, i)));
-  const unlinked = nodes.filter((n) => !degree.get(n));
+  const unlinked = nodes.filter((n) => !included(n));
   unlinked.forEach((n) => clusterOf.set(n, -1));
 
   // Describe each cluster by its most common hashtags.
@@ -1452,6 +1600,8 @@ function runAnalysis() {
     modularity: r.modularity, qMin: batch.qMin, qMax: batch.qMax, runs: batch.runs, seed: r.seed,
     bestSeed: batch.seed, singleRun: !!single,
     changed: prev ? compareToPrevious(nodes, prev, clusterOf) : null,
+    algorithm: a.algorithm, ward, louvainK,
+    prevAlgorithm: prev ? a.result.algorithm : null,
     method: a.method, focus: a.focus, jaccard: a.jaccard, hidden: Array.from(a.hidden).filter((t) => t !== a.focus)
   };
 }
@@ -1466,15 +1616,19 @@ function renderChangeSummary(res, unitPlural) {
     return `#${escapeHtml(w.rank)} ${escapeHtml(w.title || id)}`;
   };
   const dot = (i) => `<span class="cmp-dot" style="background:${clusterColor(i)}"></span>`;
+  const algName = (x) => (x === "ward" ? "Ward" : "Louvain");
+  const head = res.prevAlgorithm && res.prevAlgorithm !== res.algorithm
+    ? `Compared with the ${algName(res.prevAlgorithm)} result`
+    : "Change from the previous result";
   if (!c.count) {
-    return `<div class="an-change"><div class="an-change-head">Change from the previous result</div>
+    return `<div class="an-change"><div class="an-change-head">${head}</div>
       <div>Same clusters as before · NMI 1.00</div></div>`;
   }
   const list = c.moved
     .sort((x, y) => x.from - y.from || x.to - y.to)
     .map((m) => `<li>${name(m.id)} <span class="an-move">${dot(m.from)}${m.from + 1} → ${dot(m.to)}${m.to + 1}</span></li>`).join("");
   return `<div class="an-change">
-      <div class="an-change-head">Change from the previous result</div>
+      <div class="an-change-head">${head}</div>
       <div class="an-change-stats">
         <div><span class="an-change-big">${c.count}</span> of ${c.total} ${unitPlural} moved <strong>(${Math.round(c.share * 100)}%)</strong></div>
         <div>NMI <strong>${c.nmi.toFixed(2)}</strong> <span class="small-note">(similarity of the two groupings: 1 = identical, 0 = unrelated)</span></div>
@@ -1520,6 +1674,41 @@ function compareToPrevious(nodes, prev, next) {
   };
 }
 
+// Ward on 0/1 profiles. Works view: each work = which hashtags it has.
+// Hashtag views: each hashtag = which works it appears in. Hashtags found on
+// fewer than WARD_MIN_WORKS works are left out (they are too sparse to place).
+// Rows and columns are sorted by id so a Python re-run gives the same result.
+const WARD_MIN_WORKS = 3;
+
+function runWard(kind, nodes, workSetById, freqWithin, louvainK) {
+  const a = state.analysis;
+  let items, vectors;
+  if (kind === "work") {
+    const freq = new Map();
+    for (const id of nodes) for (const t of workSetById.get(id)) freq.set(t, (freq.get(t) || 0) + 1);
+    const cols = Array.from(freq).filter(([, c]) => c >= WARD_MIN_WORKS).map(([t]) => t).sort();
+    items = nodes.slice().sort();
+    vectors = items.map((id) => cols.map((t) => (workSetById.get(id).has(t) ? 1 : 0)));
+  } else {
+    const workIds = Array.from(workSetById.keys()).sort();
+    items = nodes.filter((t) => (freqWithin.get(t) || 0) >= WARD_MIN_WORKS).sort();
+    vectors = items.map((t) => workIds.map((id) => (workSetById.get(id).has(t) ? 1 : 0)));
+  }
+  const tree = wardLinkage(vectors);
+  const maxK = Math.min(10, Math.max(2, items.length - 1));
+  const kRequested = Math.max(2, Math.min(maxK, a.k != null ? a.k : Math.max(2, louvainK)));
+  const labels = cutTree(tree, kRequested);
+  const silByK = [];
+  for (let k = 2; k <= maxK; k++) silByK.push({ k, s: silhouetteScore(vectors, cutTree(tree, k)) });
+  const assign = new Map(items.map((id, i) => [id, labels[i]]));
+  return {
+    items, vectors, tree, assign, kRequested, maxK,
+    k: new Set(labels).size,
+    silhouette: silhouetteScore(vectors, labels),
+    silByK, columns: vectors[0] ? vectors[0].length : 0
+  };
+}
+
 function buildAnalysisGraph() {
   state.analysis.expanded.clear();
   state.analysis.runSeed = null;
@@ -1560,6 +1749,13 @@ function applyClusterCategoryVisibility() {
 
 function rerunAnalysis(seed) {
   state.analysis.runSeed = seed;
+  refreshAnalysisInPlace();
+}
+
+// Recompute the clusters without redrawing the map: colours change and nodes
+// drift toward their new cluster's area; earlier colours are kept where the
+// groups match.
+function refreshAnalysisInPlace() {
   state.analysis.align = true;
   const res = runAnalysis();
   state.analysis.align = false;
@@ -1596,6 +1792,7 @@ function setupAnalysisControls() {
     const tag = d3.select("#an-tag").property("value");
     if (!tag || tag === state.analysis.focus) return;
     state.analysis.focus = tag;
+    state.analysis.k = null;
     state.analysis.hidden.delete(tag); // the focus tag cannot be hidden
     updateAnalysisHideDropdown();
     updateNetwork();
@@ -1605,7 +1802,22 @@ function setupAnalysisControls() {
     .attr("value", (d) => d).text((d) => ANALYSIS_METHODS[d].label);
   d3.select("#an-method").property("value", state.analysis.method).on("change", function () {
     state.analysis.method = this.value;
+    state.analysis.k = null; // a new view starts by matching Louvain's count
     updateNetwork();
+  });
+  d3.selectAll("#an-alg button").on("click", function () {
+    if (state.analysis.algorithm === this.dataset.alg) return;
+    state.analysis.algorithm = this.dataset.alg;
+    state.analysis.runSeed = null;
+    refreshAnalysisInPlace();
+  });
+  d3.select("#an-k").on("input", function () {
+    state.analysis.k = +this.value;
+    refreshAnalysisInPlace();
+  });
+  d3.select("#an-k-match").on("click", () => {
+    state.analysis.k = null;
+    refreshAnalysisInPlace();
   });
   d3.select("#an-jaccard").on("input", function () {
     state.analysis.jaccard = +this.value;
@@ -1771,10 +1983,28 @@ function renderAnalysisPanel() {
   d3.select("#an-method-help").html(
     `<span class="an-question">Q. ${escapeHtml(m.question(res.focus))}</span>${escapeHtml(m.help)}`);
   d3.select("#an-jaccard-row").classed("hidden", res.method !== "works");
+  const isWard = res.algorithm === "ward";
+  d3.selectAll("#an-alg button").classed("active", function () { return this.dataset.alg === res.algorithm; })
+    .attr("aria-pressed", function () { return this.dataset.alg === res.algorithm ? "true" : "false"; });
+  d3.select("#an-alg-help").html(isWard
+    ? "<strong>Ward</strong> (hierarchical clustering): starts with every item on its own and keeps merging the two closest groups, building a tree. You choose how many clusters to cut it into (k)."
+    : "<strong>Louvain</strong> (network community detection): links similar items and finds groups that are densely linked inside. It decides the number of clusters itself.");
+  d3.select("#an-jaccard-ward-note").classed("hidden", !isWard);
+  d3.select("#an-k-row").classed("hidden", !isWard);
+  d3.select("#an-q-explain").classed("hidden", isWard);
+  d3.select("#an-ward-explain").classed("hidden", !isWard);
+  if (isWard) {
+    d3.select("#an-k").attr("max", res.ward.maxK).property("value", res.ward.kRequested);
+    d3.select("#an-k-value").text(res.ward.k === res.ward.kRequested ? res.ward.k : `${res.ward.kRequested} (→ ${res.ward.k}: tied merges)`);
+    d3.select("#an-k-match").text(`Match Louvain (${Math.max(2, res.louvainK)})`)
+      .property("disabled", state.analysis.k == null);
+  }
 
   const strength = res.modularity >= 0.3 ? "clear structure" : res.modularity >= 0.2 ? "moderate structure" : "weak structure";
   const unitPlural = res.kind === "work" ? "works" : "hashtags";
-  d3.select("#an-modularity").html(`
+  if (isWard) {
+    renderWardCard(res, unitPlural);
+  } else d3.select("#an-modularity").html(`
     <div class="an-q">
       <div><span class="an-q-label">Modularity (Q)</span><span class="an-q-value">${res.modularity.toFixed(3)}</span></div>
       <div class="an-q-meta">${strength} · ${res.clusters.length} clusters · ${res.nodes.length - res.unlinked.length} of ${res.nodes.length} ${unitPlural} linked${res.method === "works" ? ` (similarity ≥ ${res.jaccard.toFixed(2)})` : ""}
@@ -1824,7 +2054,9 @@ function renderAnalysisPanel() {
       </details>`;
   }).join("");
   const unlinked = res.unlinked.length
-    ? `<p class="small-note">${res.unlinked.length} ${unitPlural} have no links at this setting and are left out of the clusters (white on the map).</p>`
+    ? (isWard
+      ? `<p class="small-note">${res.unlinked.length} ${unitPlural} appear in fewer than ${WARD_MIN_WORKS} works and are not clustered by Ward (white on the map).</p>`
+      : `<p class="small-note">${res.unlinked.length} ${unitPlural} have no links at this setting and are left out of the clusters (white on the map).</p>`)
     : "";
   d3.select("#an-clusters").html(cards + unlinked);
   d3.select("#an-clusters").selectAll("button.an-work").on("click", function () { openWorkCard(this.dataset.id); });
@@ -1835,6 +2067,97 @@ function renderAnalysisPanel() {
     renderAnalysisPanel();
   });
   applyClusterCategoryVisibility();
+}
+
+function silhouetteWord(s) {
+  if (!isFinite(s)) return "–";
+  if (s >= 0.5) return "clear separation";
+  if (s >= 0.25) return "some separation";
+  return "weak separation";
+}
+
+function renderWardCard(res, unitPlural) {
+  const w = res.ward;
+  const maxS = Math.max(0.1, ...w.silByK.map((d) => (isFinite(d.s) ? d.s : 0)));
+  const bars = w.silByK.map((d) => `
+      <button type="button" class="an-silbar${d.k === w.kRequested ? " active" : ""}" data-k="${d.k}" title="k = ${d.k}: silhouette ${isFinite(d.s) ? d.s.toFixed(3) : "–"}">
+        <span class="an-silbar-fill" style="height:${Math.max(2, Math.round((isFinite(d.s) ? d.s : 0) / maxS * 46))}px"></span>
+        <span class="an-silbar-k">${d.k}</span>
+      </button>`).join("");
+  d3.select("#an-modularity").html(`
+    <div class="an-q">
+      <div><span class="an-q-label">Silhouette (k = ${w.k})</span><span class="an-q-value">${isFinite(w.silhouette) ? w.silhouette.toFixed(3) : "–"}</span></div>
+      <div class="an-q-meta">${silhouetteWord(w.silhouette)} · ${w.items.length} of ${res.nodes.length} ${unitPlural} clustered
+        (${res.kind === "work" ? `profiles over ${w.columns} hashtags found on ≥ ${WARD_MIN_WORKS} works` : `hashtags on ≥ ${WARD_MIN_WORKS} works`})
+        <br>Agreement with Louvain: <strong>NMI ${isFinite(w.nmiLouvain) ? w.nmiLouvain.toFixed(2) : "–"}</strong>
+        (Louvain found ${res.louvainK} clusters; 1 = same grouping, 0 = unrelated)</div>
+      <div class="an-sub an-silbar-label">Silhouette for each k (click to choose)</div>
+      <div class="an-silbars">${bars}</div>
+      <div class="an-sub an-silbar-label">Tree (dendrogram) · dashed line = where it is cut</div>
+      <div id="an-dendrogram"></div>
+      ${res.changed ? renderChangeSummary(res, unitPlural) : ""}
+    </div>`);
+  d3.selectAll("#an-modularity .an-silbar").on("click", function () {
+    state.analysis.k = +this.dataset.k;
+    refreshAnalysisInPlace();
+  });
+  drawDendrogram(res);
+}
+
+// Small dendrogram: leaves along the bottom, merge height upward; branches
+// below the cut take their cluster's colour.
+function drawDendrogram(res) {
+  const w = res.ward;
+  const box = d3.select("#an-dendrogram");
+  const n = w.tree.n;
+  if (n < 2) { box.html(""); return; }
+  const width = Math.max(240, box.node().getBoundingClientRect().width || 300);
+  const height = 150;
+  const pad = { l: 4, r: 4, t: 8, b: 6 };
+  const merges = w.tree.merges;
+  const children = (id) => (id < n ? null : merges[id - n]);
+  // leaf order: left-to-right traversal from the root
+  const order = [];
+  const walk = (id) => { const m = children(id); if (!m) { order.push(id); return; } walk(m.a); walk(m.b); };
+  walk(n + merges.length - 1);
+  const xOf = new Map(order.map((id, i) => [id, pad.l + (i + 0.5) * (width - pad.l - pad.r) / n]));
+  const maxH = merges[merges.length - 1].height || 1;
+  const y = (h) => height - pad.b - (h / maxH) * (height - pad.t - pad.b);
+  const pos = new Map();
+  for (const id of order) pos.set(id, { x: xOf.get(id), y: y(0) });
+  const applied = n - w.k; // merges below the cut
+  const clusterOfNode = new Map();
+  for (const id of order) clusterOfNode.set(id, res.clusterOf.get(w.items[id]));
+  const segs = [];
+  merges.forEach((m, i) => {
+    const id = n + i;
+    const pa = pos.get(m.a), pb = pos.get(m.b);
+    const p = { x: (pa.x + pb.x) / 2, y: y(m.height) };
+    pos.set(id, p);
+    const below = i < applied;
+    const c = below ? clusterOfNode.get(m.a) : null;
+    if (below) clusterOfNode.set(id, c);
+    const color = below && c != null && c >= 0 ? clusterColor(c) : "#b5ada8";
+    segs.push({ d: `M${pa.x},${pa.y}V${p.y}H${pb.x}V${pb.y}`, color });
+  });
+  const cutH = applied > 0 && applied < merges.length
+    ? (merges[applied - 1].height + merges[applied].height) / 2
+    : merges[merges.length - 1].height;
+  box.html("");
+  const svgD = box.append("svg").attr("width", width).attr("height", height).attr("class", "an-dendro");
+  svgD.selectAll("path").data(segs).join("path").attr("d", (d) => d.d).attr("stroke", (d) => d.color).attr("fill", "none").attr("stroke-width", 1.2);
+  svgD.append("line").attr("x1", 0).attr("x2", width).attr("y1", y(cutH)).attr("y2", y(cutH))
+    .attr("stroke", "#2b2624").attr("stroke-dasharray", "4 3").attr("stroke-width", 1);
+  const label = (id) => {
+    const item = w.items[id];
+    if (res.kind !== "work") return item;
+    const wk = state.worksById.get(item) || {};
+    return `#${wk.rank} ${wk.title || item}`;
+  };
+  svgD.selectAll("circle").data(order).join("circle")
+    .attr("cx", (id) => xOf.get(id)).attr("cy", y(0)).attr("r", 2)
+    .attr("fill", (id) => clusterColor(res.clusterOf.get(w.items[id])))
+    .append("title").text((id) => label(id));
 }
 
 function csvEscape(v) {
@@ -1873,11 +2196,15 @@ function downloadCooccurrenceCSV() {
 function downloadClustersCSV() {
   const res = state.analysis.result;
   if (!res) return;
-  const header = ["method", "focus_tag", "result", "modularity", "modularity_min_10_runs", "modularity_max_10_runs", "seed",
-    "jaccard_threshold", "hidden_tags", "cluster", "item_type", "id", "title_or_tag", "rank", "degree"];
+  const isWard = res.algorithm === "ward";
+  const header = ["algorithm", "what_to_see", "focus_tag", "result", "modularity", "modularity_min_10_runs", "modularity_max_10_runs", "seed",
+    "ward_k", "silhouette", "nmi_vs_louvain", "jaccard_threshold", "hidden_tags", "cluster", "item_type", "id", "title_or_tag", "rank", "degree"];
   const out = [header];
-  const meta = [ANALYSIS_METHODS[res.method].label, res.focus, res.singleRun ? "single run" : "best of 10", res.modularity.toFixed(4), res.qMin.toFixed(4),
-    res.qMax.toFixed(4), res.seed, res.method === "works" ? res.jaccard : "", res.hidden.join("; ")];
+  const meta = [isWard ? "Ward" : "Louvain", ANALYSIS_METHODS[res.method].label, res.focus,
+    isWard ? `Ward, k=${res.ward.k}, items on >= ${WARD_MIN_WORKS} works` : (res.singleRun ? "single run" : "best of 10"),
+    isWard ? "" : res.modularity.toFixed(4), isWard ? "" : res.qMin.toFixed(4), isWard ? "" : res.qMax.toFixed(4), isWard ? "" : res.seed,
+    isWard ? res.ward.k : "", isWard ? res.ward.silhouette.toFixed(4) : "", isWard ? res.ward.nmiLouvain.toFixed(4) : "",
+    res.method === "works" ? res.jaccard : "", res.hidden.join("; ")];
   const row = (cluster, id) => {
     if (res.kind === "work") {
       const w = state.worksById.get(id) || {};
@@ -1886,8 +2213,8 @@ function downloadClustersCSV() {
     return [...meta, cluster, "tag", id, id, "", res.degree.get(id)];
   };
   res.clusters.forEach((c) => c.members.forEach((id) => out.push(row(c.index + 1, id))));
-  res.unlinked.forEach((id) => out.push(row("unlinked", id)));
-  downloadCSV(`clusters_${res.method}_${res.focus}.csv`, out);
+  res.unlinked.forEach((id) => out.push(row(isWard ? "not clustered" : "unlinked", id)));
+  downloadCSV(`clusters_${isWard ? "ward" : "louvain"}_${res.method}_${res.focus}.csv`, out);
 }
 
 // =====================================================================
