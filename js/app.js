@@ -111,8 +111,8 @@ function cleanCategory(category) {
 // Layer 1 = who/what the tag describes (stored in `category` as an English key).
 const L1_ORDER = ["female_protagonist", "male_protagonist", "relationship", "genre_plot"];
 const L1_LABELS = {
-  female_protagonist: "여주 · female lead",
-  male_protagonist: "남주 · male lead",
+  female_protagonist: "여주 · female protagonist",
+  male_protagonist: "남주 · male protagonist",
   relationship: "관계 · relationship",
   genre_plot: "장르·플롯·배경 · genre / plot / setting"
 };
