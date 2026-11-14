@@ -1549,3 +1549,46 @@ body[data-lang="en"] .lang-en {
 /* map node highlighted from the dendrogram */
 g.node.dendro-hl circle { stroke: #111 !important; stroke-width: 4px !important; }
 g.node.dendro-hl text { font-weight: 700; display: inline !important; }
+
+/* ---- Dimensions tab ---- */
+.mode-switch { grid-template-columns: repeat(5, 1fr); }
+.mode-switch button { font-size: 11.5px; padding: 8px 2px; }
+.mode-switch.two-tabs { grid-template-columns: repeat(2, 1fr); }
+.mode-switch.two-tabs button { font-size: 12.5px; }
+#dm-method button { font-size: 12px; }
+.dm-axis-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+#dm-focus-block.hidden { display: none; }
+.dm-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 6px 0 4px; font-size: 11.5px; color: #5d5551; }
+.dm-legend-item { display: inline-flex; align-items: center; }
+.dm-bars { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 8px; }
+.dm-bar { display: grid; grid-template-columns: 44px 1fr 46px; align-items: center; gap: 8px; width: 100%;
+  border: none; background: transparent; padding: 3px 4px; border-radius: 5px; font-size: 12px; color: #5d5551; text-align: left; }
+.dm-bar:hover { background: #f5f0ec; }
+.dm-bar.active { color: #1f1b19; font-weight: 700; }
+.dm-bar-track { position: relative; height: 10px; background: #f1ece8; border-radius: 5px; }
+.dm-bar-fill { position: absolute; left: 0; top: 0; bottom: 0; background: #cfc6c1; border-radius: 5px; }
+.dm-bar.active .dm-bar-fill { background: #2b2624; }
+.dm-bar-even { position: absolute; top: -3px; bottom: -3px; width: 2px; background: #c0392b; opacity: 0.7; }
+.dm-bar-val { text-align: right; }
+.dm-pole-block { margin: 12px 0 4px; }
+.dm-pole-block h3 { margin: 0 0 6px; font-size: 13.5px; display: flex; align-items: baseline; gap: 8px; }
+.dm-pole-pct { font-weight: 400; color: #8a817c; font-size: 12px; }
+.dm-pole-where { margin-left: auto; font-weight: 400; color: #8a817c; font-size: 11.5px; }
+.dm-pole-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.dm-pole-cols ol { list-style: none; margin: 2px 0 0; padding: 0; }
+.dm-pole-cols li { display: flex; align-items: center; gap: 2px; padding: 2px 3px; font-size: 12px; border-radius: 4px; cursor: default; }
+.dm-pole-cols li:hover { background: #f5f0ec; }
+.dm-pole-tag { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dm-pole-v { color: #8a817c; font-variant-numeric: tabular-nums; font-size: 11.5px; }
+.dm-grid { stroke: #efeae6; stroke-width: 1; }
+.dm-axis { stroke: #b9b0ab; stroke-width: 1.2; }
+.dm-circle { fill: none; stroke: #d6cfcb; stroke-dasharray: 4 4; }
+.dm-tick { font-size: 10.5px; fill: #a39a95; }
+.dm-axis-title { font-size: 12.5px; font-weight: 700; fill: #6b625e; }
+.dm-empty { font-size: 14px; fill: #8a817c; }
+.dm-node { cursor: pointer; }
+.dm-node .node-label { pointer-events: none; }
+.dm-node.dm-hover .node-label, .dm-node.dm-hl .node-label { font-size: 13.5px; font-weight: 700; fill: #111; }
+.dm-node.dm-hl circle { stroke: #111; stroke-width: 3; }
+.dm-inspect-table { margin-top: 10px; }
+.dm-axis-sub { font-size: 11.5px; fill: #8a817c; }

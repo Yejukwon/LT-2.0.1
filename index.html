@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Romance Fantasy Hashtag Network</title>
-  <link rel="stylesheet" href="css/style.css?v=20">
+  <link rel="stylesheet" href="css/style.css?v=21">
 </head>
 
 <body>
@@ -35,6 +35,7 @@
           <button type="button" data-mode="comparison">Compare</button>
           <button type="button" data-mode="works">Find works</button>
           <button type="button" data-mode="analysis">Analysis</button>
+          <button type="button" data-mode="dimensions">Dimensions</button>
         </div>
         <p id="mode-help" class="small-note mode-help"></p>
         <p id="data-status" class="data-status">Loading data...</p>
@@ -285,6 +286,70 @@
         <div id="an-clusters"></div>
       </section>
 
+      <!-- Hashtag lens: Dimensions (PCA / correspondence analysis) -->
+      <section class="panel-section" data-modes="tag:dimensions">
+        <div class="an-heading">
+          <h2>Dimensions</h2>
+          <button id="dm-download" type="button" class="an-download">CSV</button>
+        </div>
+        <div class="an-field-label">Method</div>
+        <div id="dm-method" class="an-alg-switch" role="group" aria-label="Dimension method">
+          <button type="button" data-method="pca">Standardized PCA</button>
+          <button type="button" data-method="ca">Correspondence analysis</button>
+        </div>
+        <p id="dm-method-help" class="small-note an-method-help"></p>
+        <label>
+          Works included
+          <select id="dm-scope">
+            <option value="all">All works with hashtags</option>
+            <option value="focus">Only works with a focus hashtag</option>
+          </select>
+        </label>
+        <div id="dm-focus-block" class="filter-block hidden">
+          <div id="dm-focus-current" class="an-focus-current"></div>
+          <label>
+            Category
+            <select id="dm-category"></select>
+          </label>
+          <label>Tag</label>
+          <div class="works-add-row">
+            <select id="dm-tag"></select>
+            <button id="dm-set" type="button">Set focus</button>
+          </div>
+        </div>
+        <div class="dm-axis-row">
+          <label>Horizontal axis <select id="dm-x"></select></label>
+          <label>Vertical axis <select id="dm-y"></select></label>
+        </div>
+        <label>
+          Use hashtags on at least
+          <select id="dm-min">
+            <option value="2">2 works</option>
+            <option value="3">3 works</option>
+            <option value="4">4 works</option>
+            <option value="5">5 works</option>
+          </select>
+        </label>
+        <label class="checkbox-row"><input type="checkbox" id="dm-romance"> Include 로맨스판타지 (on almost every work)</label>
+        <div class="an-field-label">Colour</div>
+        <div class="color-by-row" role="radiogroup" aria-label="Colour hashtags by">
+          <label><input type="radio" name="dm-color" value="l2" checked> Layer 2 (meaning)</label>
+          <label><input type="radio" name="dm-color" value="l1"> Layer 1 (who / what)</label>
+        </div>
+        <div id="dm-legend" class="dm-legend"></div>
+        <p id="dm-summary" class="small-note an-summary"></p>
+      </section>
+
+      <section class="panel-section" data-modes="tag:dimensions">
+        <h2>Axes</h2>
+        <div id="dm-explained"></div>
+        <div id="dm-poles"></div>
+        <p class="small-note">Hover a hashtag in the lists to find it on the map. The + and − ends of an axis have no
+          meaning by themselves: each axis is flipped so that its most extreme hashtag is on the + side, and the CSV gives
+          all five coordinates for every hashtag. Rare hashtags (fewer works than the cut-off) are left out because a
+          hashtag on one or two works can pull an axis on its own.</p>
+      </section>
+
       <!-- Work lens: Network -->
       <section class="panel-section" data-modes="work:full">
         <h2>Work Similarity</h2>
@@ -430,6 +495,6 @@
 </div>
   
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-  <script src="js/app.js?v=20"></script>
+  <script src="js/app.js?v=21"></script>
 </body>
 </html>

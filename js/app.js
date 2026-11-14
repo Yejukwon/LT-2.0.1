@@ -39,6 +39,9 @@ const state = {
     clusterCats: null, expanded: new Set(),
     // clustering method for ② Clusters: "louvain" or "ward"; k = Ward's number of clusters (null = match Louvain)
     algorithm: "louvain", k: null },
+  // Dimensions tab (hashtag lens): hashtags placed on PCA / correspondence-analysis axes
+  // method "pca" | "ca"; scope "all" | "focus"; x, y = axis indices (0 = first axis)
+  dims: { method: "pca", scope: "all", focus: "능력녀", minWorks: 3, includeRomance: false, x: 0, y: 1, colorBy: "l2", result: null },
   worksListVisible: true,
   currentGraph: null
 };
@@ -73,6 +76,7 @@ Promise.all([
     setupHelpModal();
     setupWorkLensControls();
     setupAnalysisControls();
+    setupDimsControls();
     setupClosenessControls();
     setupMagnifier();
     setupModeSwitch();
@@ -507,6 +511,8 @@ function updateNetwork() {
       : buildWorkGraph();
   } else if (mode === "analysis") {
     graph = buildAnalysisGraph();
+  } else if (mode === "dimensions") {
+    graph = buildDimsGraph();
   } else {
     graph = mode === "works" && state.worksTags.size
       ? buildWorksGraph()
@@ -526,6 +532,7 @@ function updateNetwork() {
     renderWorksList();
     if (mode === "comparison") compareSelectedTags();
     if (mode === "analysis") renderAnalysisPanel();
+    if (mode === "dimensions") renderDimsPanel();
     if (mode === "full") renderClosenessPanel();
   } else {
     renderHighlightChips();
@@ -543,7 +550,10 @@ function updateNetwork() {
   }
 
   let counts;
-  if (graph.mode === "works" || graph.mode === "worknet" || (graph.mode === "clusters" && graph.kind === "work")) {
+  if (graph.mode === "dims") {
+    const r = graph.result;
+    counts = `<strong>${graph.nodes.length}</strong> hashtags · <strong>${r.ids.length - r.droppedWorks}</strong> works`;
+  } else if (graph.mode === "works" || graph.mode === "worknet" || (graph.mode === "clusters" && graph.kind === "work")) {
     counts = `<strong>${graph.nodes.filter((d) => d.type === "work").length}</strong> works · <strong>${graph.links.length}</strong> links`;
   } else if (graph.mode === "comparison" && graph.lens === "work") {
     counts = `<strong>${graph.compareTags.length}</strong> works · <strong>${graph.nodes.length - graph.compareTags.length}</strong> hashtags`;
@@ -579,6 +589,7 @@ const MODE_HELP = {
   "tag:comparison": "Pick two or more hashtags to see which tags sit near each one, and which they share.",
   "tag:works": "Pick hashtags to list and map the works that carry them.",
   "tag:analysis": "Pick a focus hashtag. ① shows which hashtags it is paired with; ② groups works or hashtags into clusters with Louvain (network) or Ward (hierarchical) and shows how clear the split is.",
+  "tag:dimensions": "Each dot is a hashtag. Hashtags that tend to appear on the same works sit on the same side of an axis; the axes are found by standardized PCA or correspondence analysis. Hover for details, click for all five coordinates.",
   "work:full": "Each node is a work. Works are linked when their hashtags overlap, and more similar works sit closer together; bigger nodes are linked to more works. Hover for the full title, click for details.",
   "work:comparison": "Pick two or more works to see which hashtags they share and which belong to only one of them."
 };
@@ -601,8 +612,9 @@ function setLens(lens, initial = false) {
   // "Find works" only exists in the hashtag lens.
   d3.select('#mode-switch button[data-mode="works"]').classed("mode-hidden", lens === "work");
   d3.select('#mode-switch button[data-mode="analysis"]').classed("mode-hidden", lens === "work");
+  d3.select('#mode-switch button[data-mode="dimensions"]').classed("mode-hidden", lens === "work");
   d3.select("#mode-switch").classed("two-tabs", lens === "work");
-  if (lens === "work" && (state.viewMode === "works" || state.viewMode === "analysis")) state.viewMode = "full";
+  if (lens === "work" && ["works", "analysis", "dimensions"].includes(state.viewMode)) state.viewMode = "full";
   setViewMode(state.viewMode, initial);
 }
 
@@ -616,6 +628,7 @@ function setViewMode(mode, initial = false) {
     return !this.dataset.modes.split(" ").includes(key);
   });
   d3.select("#mode-help").text(MODE_HELP[key] || "");
+  d3.select(".pin-bar").classed("mode-hidden", key === "tag:dimensions");
   hideNodeTooltip();
   d3.select("#inspector").html(state.lens === "work"
     ? "Click a link between two works to see the hashtags they share."
@@ -2650,6 +2663,7 @@ function drawNetwork(graph) {
 
   if (currentSim) currentSim.stop();
   currentSim = null;
+  if (graph.mode === "dims") { drawDimensions(graph, width, height); return; }
   let compareLayout = null;
 
   let closeLayout = null;
@@ -3038,6 +3052,7 @@ function isCompareAnchor(id) {
 }
 
 function nodeRadius(d) {
+  if (d.dims) return dimsRadius(d);
   // Closeness view: smaller nodes so the wedges have room.
   if (d.closeness) return d.closeness.isFocus ? 14 : 3.5 + Math.sqrt(d.frequency || 1) * 1.5;
   // Work network: size by how many other works a work is linked to.
@@ -3069,6 +3084,9 @@ function nodePieColors(d) {
   if (g.mode === "worknet") {
     const hits = highlightMatches(d);
     return hits.length > 1 ? hits.map((t) => state.highlightTags.get(t)) : [];
+  }
+  if (g.mode === "dims") {
+    return state.dims.colorBy === "l2" && d.layer2 && d.layer2.length > 1 ? d.layer2.map(layer2Color) : [];
   }
   if (usesLayerColors() && state.colorBy === "l2" && d.layer2 && d.layer2.length > 1) {
     return d.layer2.map(layer2Color);
@@ -3821,4 +3839,509 @@ function setupHelpModal() {
       helpModal.classed("hidden", true);
     }
   });
+}
+
+// ---- Dimension reduction for hashtags: standardized PCA and correspondence analysis ----
+// Symmetric eigen-decomposition (cyclic Jacobi). Returns eigenvalues (desc) and
+// eigenvectors as columns: vectors[i][k] = component k, entry i.
+function symmetricEigen(A) {
+  const n = A.length;
+  const a = A.map((r) => Float64Array.from(r));
+  const v = Array.from({ length: n }, (_, i) => { const r = new Float64Array(n); r[i] = 1; return r; });
+  for (let sweep = 0; sweep < 100; sweep++) {
+    let off = 0;
+    for (let p = 0; p < n; p++) for (let q = p + 1; q < n; q++) off += a[p][q] * a[p][q];
+    if (off < 1e-22) break;
+    for (let p = 0; p < n - 1; p++) {
+      for (let q = p + 1; q < n; q++) {
+        const apq = a[p][q];
+        if (Math.abs(apq) < 1e-300) continue;
+        const theta = (a[q][q] - a[p][p]) / (2 * apq);
+        const t = Math.sign(theta || 1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+        const c = 1 / Math.sqrt(t * t + 1);
+        const s = t * c;
+        for (let k = 0; k < n; k++) {
+          const akp = a[k][p], akq = a[k][q];
+          a[k][p] = c * akp - s * akq;
+          a[k][q] = s * akp + c * akq;
+        }
+        for (let k = 0; k < n; k++) {
+          const apk = a[p][k], aqk = a[q][k];
+          a[p][k] = c * apk - s * aqk;
+          a[q][k] = s * apk + c * aqk;
+        }
+        for (let k = 0; k < n; k++) {
+          const vkp = v[k][p], vkq = v[k][q];
+          v[k][p] = c * vkp - s * vkq;
+          v[k][q] = s * vkp + c * vkq;
+        }
+      }
+    }
+  }
+  const order = Array.from({ length: n }, (_, i) => i).sort((i, j) => a[j][j] - a[i][i]);
+  return {
+    values: order.map((i) => a[i][i]),
+    vectors: v.map((row) => order.map((i) => row[i]))
+  };
+}
+
+// Sign rule (stated so a Python re-run can match): flip each dimension so that
+// the hashtag with the largest absolute coordinate is positive.
+function fixSigns(coords, dims) {
+  for (let k = 0; k < dims; k++) {
+    let best = 0;
+    for (let i = 0; i < coords.length; i++) if (Math.abs(coords[i][k]) > Math.abs(coords[best][k])) best = i;
+    if (coords[best][k] < 0) for (let i = 0; i < coords.length; i++) coords[i][k] = -coords[i][k];
+  }
+}
+
+// matrix: works x tags (0/1). Standardized PCA with hashtags as the variables:
+// each hashtag is scaled to mean 0, sd 1, so frequency does not drive the axes.
+// Hashtag coordinate = its correlation with the component (inside the unit circle).
+function standardizedPCA(matrix, dims = 5) {
+  const n = matrix.length, p = matrix[0].length;
+  const mean = new Float64Array(p), sd = new Float64Array(p);
+  for (let j = 0; j < p; j++) {
+    let s = 0; for (let i = 0; i < n; i++) s += matrix[i][j]; mean[j] = s / n;
+    let v = 0; for (let i = 0; i < n; i++) v += (matrix[i][j] - mean[j]) ** 2; sd[j] = Math.sqrt(v / n);
+  }
+  const R = Array.from({ length: p }, () => new Float64Array(p));
+  for (let a = 0; a < p; a++) {
+    for (let b = a; b < p; b++) {
+      let s = 0;
+      for (let i = 0; i < n; i++) s += (matrix[i][a] - mean[a]) * (matrix[i][b] - mean[b]);
+      R[a][b] = R[b][a] = s / n / (sd[a] * sd[b]);
+    }
+  }
+  const { values, vectors } = symmetricEigen(R);
+  const total = values.reduce((s, x) => s + Math.max(0, x), 0);
+  const d = Math.min(dims, p);
+  const coords = vectors.map((row) => Array.from({ length: d }, (_, k) => row[k] * Math.sqrt(Math.max(0, values[k]))));
+  fixSigns(coords, d);
+  return { coords, explained: values.slice(0, d).map((x) => Math.max(0, x) / total) };
+}
+
+// Correspondence analysis of the works x tags table. Hashtag coordinate =
+// principal coordinate (common tags sit near the centre).
+function correspondenceAnalysis(matrix, dims = 5) {
+  const rows = matrix.filter((r) => r.some((x) => x > 0)); // works with no tag left are dropped
+  const n = rows.length, p = rows[0].length;
+  let total = 0;
+  for (const r of rows) for (const x of r) total += x;
+  const rmass = rows.map((r) => r.reduce((s, x) => s + x, 0) / total);
+  const cmass = new Float64Array(p);
+  for (const r of rows) for (let j = 0; j < p; j++) cmass[j] += r[j] / total;
+  // standardized residuals S (n x p) -> eigen of S'S (p x p)
+  const S = rows.map((r, i) => Array.from({ length: p }, (_, j) => (r[j] / total - rmass[i] * cmass[j]) / Math.sqrt(rmass[i] * cmass[j])));
+  const StS = Array.from({ length: p }, () => new Float64Array(p));
+  for (let a = 0; a < p; a++) for (let b = a; b < p; b++) {
+    let s = 0; for (let i = 0; i < n; i++) s += S[i][a] * S[i][b];
+    StS[a][b] = StS[b][a] = s;
+  }
+  const { values, vectors } = symmetricEigen(StS);
+  const inertia = values.reduce((s, x) => s + Math.max(0, x), 0);
+  const d = Math.min(dims, p);
+  const coords = vectors.map((row, j) => Array.from({ length: d }, (_, k) => row[k] * Math.sqrt(Math.max(0, values[k])) / Math.sqrt(cmass[j])));
+  fixSigns(coords, d);
+  return { coords, explained: values.slice(0, d).map((x) => Math.max(0, x) / inertia), droppedWorks: matrix.length - n };
+}
+
+
+// ======================================================================
+// ---- Dimensions tab: hashtags placed on PCA / correspondence-analysis axes ----
+// ======================================================================
+const DIMS_COUNT = 5;
+const DIMS_METHODS = {
+  pca: {
+    label: "Standardized PCA",
+    axis: "PC",
+    help: "Each hashtag becomes a yes/no column over the works and is scaled to mean 0 and SD 1, so rare and common " +
+      "hashtags count equally. PC1 is the direction along which hashtags rise and fall together the most, PC2 the next one " +
+      "that is unrelated to PC1, and so on. A hashtag's coordinate is its <strong>correlation</strong> with the axis (−1 to 1): " +
+      "hashtags at the same end tend to appear on the same works, hashtags at opposite ends tend not to. " +
+      "The name of an axis is your interpretation, read from the hashtags at its two ends."
+  },
+  ca: {
+    label: "Correspondence analysis",
+    axis: "Dim",
+    help: "Treats the works × hashtags table as counts and asks which hashtags have a similar <em>spread over works</em>, " +
+      "beyond what their overall frequency would predict (chi-square distance). Hashtags that go with every kind of work sit " +
+      "near the centre; hashtags far out in the same direction share an unusual set of works. " +
+      "It usually tells a similar story to standardized PCA, with rare, specific hashtags pushed further out."
+  }
+};
+
+function dimsKey() {
+  const d = state.dims;
+  return [d.method, d.scope, d.scope === "focus" ? d.focus : "", d.minWorks, d.includeRomance].join("|");
+}
+
+// Works × hashtags 0/1 table, built the same way as the Python re-run:
+// works sorted by id; 로맨스판타지 left out unless included; in focus scope only
+// works with the focus tag, and the focus tag itself is dropped (every row has it);
+// hashtags on at least `minWorks` works and not on every work, sorted by name.
+function buildDimsMatrix() {
+  const d = state.dims;
+  const ids = Array.from(state.tagsByWork.keys())
+    .filter((id) => d.scope !== "focus" || state.tagsByWork.get(id).has(d.focus))
+    .sort();
+  const sets = ids.map((id) => {
+    const s = new Set(state.tagsByWork.get(id));
+    if (!d.includeRomance) s.delete("로맨스판타지");
+    if (d.scope === "focus") s.delete(d.focus);
+    return s;
+  });
+  const freq = new Map();
+  for (const s of sets) for (const t of s) freq.set(t, (freq.get(t) || 0) + 1);
+  const tags = Array.from(freq.keys())
+    .filter((t) => freq.get(t) >= d.minWorks && freq.get(t) < ids.length)
+    .sort();
+  const matrix = sets.map((s) => tags.map((t) => (s.has(t) ? 1 : 0)));
+  return { ids, tags, freq, matrix };
+}
+
+function computeDims() {
+  const key = dimsKey();
+  if (state.dims.result && state.dims.result.key === key) return state.dims.result;
+  const m = buildDimsMatrix();
+  let res = null;
+  if (m.ids.length >= 3 && m.tags.length >= 3) {
+    res = state.dims.method === "ca" ? correspondenceAnalysis(m.matrix, DIMS_COUNT) : standardizedPCA(m.matrix, DIMS_COUNT);
+  }
+  state.dims.result = {
+    key, method: state.dims.method, ids: m.ids, tags: m.tags, freq: m.freq,
+    coords: res ? res.coords : [], explained: res ? res.explained : [], droppedWorks: res?.droppedWorks || 0
+  };
+  return state.dims.result;
+}
+
+function dimsAxisName(k, method = state.dims.method) {
+  return `${DIMS_METHODS[method].axis}${k + 1}`;
+}
+
+function buildDimsGraph() {
+  const r = computeDims();
+  const nodes = r.tags.map((tag, i) => {
+    const meta = state.metaByTag.get(tag) || {};
+    return {
+      id: tag, label: tag, dims: r.coords[i],
+      frequency: r.freq.get(tag),
+      category: meta.category || "unknown",
+      layer2: meta.layer2 || []
+    };
+  });
+  return { mode: "dims", nodes, links: [], result: r };
+}
+
+function dimsNodeColor(d) {
+  if (state.dims.colorBy === "l2" && d.layer2 && d.layer2.length) return layer2Color(d.layer2[0]);
+  return categoryColor(d.category);
+}
+
+function dimsRadius(d) {
+  return 4 + Math.sqrt(d.frequency || 1) * 1.7;
+}
+
+function fmtCoord(v) {
+  return (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2);
+}
+
+function drawDimensions(graph, width, height) {
+  const r = graph.result;
+  const kx = state.dims.x, ky = state.dims.y;
+  const nodes = graph.nodes;
+  currentRender = null;
+  if (!nodes.length || !r.coords.length) {
+    graphLayer.append("text").attr("class", "dm-empty").attr("x", width / 2).attr("y", height / 2)
+      .attr("text-anchor", "middle").text("Not enough works or hashtags for these settings.");
+    return;
+  }
+  // Same scale on both axes so distances on the map are honest; origin in the middle.
+  const margin = { l: 80, r: 120, t: 70, b: 80 };
+  const ax = d3.max(nodes, (n) => Math.abs(n.dims[kx])) || 1;
+  const ay = d3.max(nodes, (n) => Math.abs(n.dims[ky])) || 1;
+  const s = Math.min((width - margin.l - margin.r) / (2 * ax), (height - margin.t - margin.b) / (2 * ay));
+  const cx = margin.l + (width - margin.l - margin.r) / 2;
+  const cy = margin.t + (height - margin.t - margin.b) / 2;
+  const X = (v) => cx + v * s;
+  const Y = (v) => cy - v * s;
+
+  const guides = graphLayer.append("g").attr("class", "dm-guides");
+  // light grid every 0.1 (PCA correlations) or a matching step for CA
+  const span = Math.max(ax, ay);
+  const step = d3.tickStep(0, span, 4);
+  const ticksX = d3.range(-Math.floor(ax / step) * step, ax + 1e-9, step);
+  const ticksY = d3.range(-Math.floor(ay / step) * step, ay + 1e-9, step);
+  const x0 = X(-ax) - 20, x1 = X(ax) + 20, y0 = Y(ay) - 20, y1 = Y(-ay) + 20;
+  guides.selectAll("line.dm-grid-x").data(ticksX.filter((t) => Math.abs(t) > 1e-9)).join("line").attr("class", "dm-grid")
+    .attr("x1", (t) => X(t)).attr("x2", (t) => X(t)).attr("y1", y0).attr("y2", y1);
+  guides.selectAll("line.dm-grid-y").data(ticksY.filter((t) => Math.abs(t) > 1e-9)).join("line").attr("class", "dm-grid")
+    .attr("y1", (t) => Y(t)).attr("y2", (t) => Y(t)).attr("x1", x0).attr("x2", x1);
+  guides.append("line").attr("class", "dm-axis").attr("x1", x0).attr("x2", x1).attr("y1", cy).attr("y2", cy);
+  guides.append("line").attr("class", "dm-axis").attr("y1", y0).attr("y2", y1).attr("x1", cx).attr("x2", cx);
+  guides.selectAll("text.dm-tick-x").data(ticksX).join("text").attr("class", "dm-tick")
+    .attr("x", (t) => X(t)).attr("y", y1 + 14).attr("text-anchor", "middle").text((t) => +t.toFixed(2));
+  guides.selectAll("text.dm-tick-y").data(ticksY).join("text").attr("class", "dm-tick")
+    .attr("x", x0 - 6).attr("y", (t) => Y(t) + 4).attr("text-anchor", "end").text((t) => +t.toFixed(2));
+  const pct = (k) => `${((r.explained[k] || 0) * 100).toFixed(1)}%`;
+  // axis titles sit just outside the plotted area so they never cover a dot
+  guides.append("text").attr("class", "dm-axis-title").attr("x", x1 + 6).attr("y", cy - 4).attr("text-anchor", "start")
+    .text(`${dimsAxisName(kx, r.method)} +`);
+  guides.append("text").attr("class", "dm-axis-sub").attr("x", x1 + 6).attr("y", cy + 12).attr("text-anchor", "start")
+    .text(pct(kx));
+  guides.append("text").attr("class", "dm-axis-title").attr("x", x0 - 6).attr("y", cy - 8).attr("text-anchor", "end")
+    .text(`${dimsAxisName(kx, r.method)} −`);
+  guides.append("text").attr("class", "dm-axis-title").attr("x", cx).attr("y", y0 - 8).attr("text-anchor", "middle")
+    .text(`${dimsAxisName(ky, r.method)} +  (${pct(ky)})`);
+  guides.append("text").attr("class", "dm-axis-title").attr("x", cx).attr("y", y1 + 30).attr("text-anchor", "middle")
+    .text(`${dimsAxisName(ky, r.method)} −`);
+
+  for (const n of nodes) { n.x = X(n.dims[kx]); n.y = Y(n.dims[ky]); }
+
+  const node = graphLayer.append("g").attr("class", "nodes dm-nodes")
+    .selectAll("g").data(nodes).join("g")
+    .attr("class", "node dm-node")
+    .on("mouseenter", function (event, d) {
+      d3.select(this).raise().classed("dm-hover", true);
+      showDimsTooltip(event, d);
+    })
+    .on("mousemove", (event) => moveNodeTooltip(event))
+    .on("mouseleave", function () {
+      d3.select(this).classed("dm-hover", false);
+      hideNodeTooltip();
+    })
+    .on("click", (event, d) => { event.stopPropagation(); showDimsInspector(d); });
+
+  node.append("circle")
+    .attr("r", (d) => dimsRadius(d))
+    .attr("fill", (d) => dimsNodeColor(d))
+    .attr("stroke", "#fff")
+    .attr("stroke-width", 1.2);
+  node.append("g").attr("class", "node-pie");
+  node.each(function (d) { renderNodePie(d3.select(this), d); });
+  node.append("text").attr("class", "node-label")
+    .attr("x", (d) => dimsRadius(d) + 3).attr("y", 4)
+    .attr("font-size", "11.5px")
+    .text((d) => d.label);
+
+  const render = () => {
+    const f = fisheyeFocus();
+    node.attr("transform", (d) => {
+      const p = f ? applyFisheye(d, f) : d;
+      return f && p.z > 1.001 ? `translate(${p.x},${p.y}) scale(${p.z})` : `translate(${p.x},${p.y})`;
+    });
+  };
+  render();
+  currentRender = render;
+}
+
+function showDimsTooltip(event, d) {
+  const r = state.dims.result;
+  const kx = state.dims.x, ky = state.dims.y;
+  d3.select("#node-tooltip").classed("hidden", false).html(
+    `<strong>${escapeHtml(d.label)}</strong><br>` +
+    `${escapeHtml(formatCategory(d.category))}${d.layer2.length ? " · " + escapeHtml(d.layer2.join(", ")) : ""}<br>` +
+    `On ${d.frequency} of ${r.ids.length} works<br>` +
+    `${dimsAxisName(kx, r.method)} ${fmtCoord(d.dims[kx])} · ${dimsAxisName(ky, r.method)} ${fmtCoord(d.dims[ky])}`
+  );
+  moveNodeTooltip(event);
+}
+
+function showDimsInspector(d) {
+  const r = state.dims.result;
+  const rows = d.dims.map((v, k) => `<tr><td>${dimsAxisName(k, r.method)}</td><td class="num">${((r.explained[k] || 0) * 100).toFixed(1)}%</td><td class="num">${fmtCoord(v)}</td></tr>`).join("");
+  d3.select("#inspector").html(`
+    <div class="inspector-card">
+      <h3>${escapeHtml(d.label)}</h3>
+      <div class="inspector-meta">
+        <div><strong>Category</strong><br>${escapeHtml(formatCategory(d.category))}</div>
+        <div><strong>Layer 2</strong><br>${escapeHtml(d.layer2.join(", ") || "—")}</div>
+        <div><strong>Works</strong><br>${d.frequency} of ${r.ids.length}</div>
+      </div>
+      <table class="an-table dm-inspect-table">
+        <thead><tr><th>Axis</th><th class="num">Explains</th><th class="num">Coordinate</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`);
+}
+
+function setupDimsControls() {
+  if (d3.select("#dm-method").empty()) return;
+  d3.selectAll("#dm-method button").on("click", function () {
+    if (state.dims.method === this.dataset.method) return;
+    state.dims.method = this.dataset.method;
+    updateNetwork();
+  });
+  d3.select("#dm-scope").property("value", state.dims.scope).on("change", function () {
+    state.dims.scope = this.value;
+    updateNetwork();
+  });
+  const categories = Array.from(new Set(state.metadata.map((d) => d.category))).sort();
+  d3.select("#dm-category").selectAll("option").data(categories).join("option")
+    .attr("value", (d) => d).text((d) => formatCategory(d));
+  const focusCat = state.metaByTag.get(state.dims.focus)?.category;
+  if (focusCat) d3.select("#dm-category").property("value", focusCat);
+  d3.select("#dm-category").on("change", updateDimsTagDropdown);
+  updateDimsTagDropdown();
+  d3.select("#dm-set").on("click", () => {
+    const tag = d3.select("#dm-tag").property("value");
+    if (!tag || tag === state.dims.focus) return;
+    state.dims.focus = tag;
+    updateNetwork();
+  });
+  const axisOptions = d3.range(DIMS_COUNT);
+  for (const [id, field] of [["#dm-x", "x"], ["#dm-y", "y"]]) {
+    d3.select(id).selectAll("option").data(axisOptions).join("option").attr("value", (k) => k);
+    d3.select(id).property("value", state.dims[field]).on("change", function () {
+      const v = +this.value;
+      const other = field === "x" ? "y" : "x";
+      if (v === state.dims[other]) state.dims[other] = state.dims[field]; // swap instead of plotting an axis against itself
+      state.dims[field] = v;
+      updateNetwork();
+    });
+  }
+  d3.select("#dm-min").property("value", String(state.dims.minWorks)).on("change", function () {
+    state.dims.minWorks = +this.value;
+    updateNetwork();
+  });
+  d3.select("#dm-romance").property("checked", state.dims.includeRomance).on("change", function () {
+    state.dims.includeRomance = this.checked;
+    updateNetwork();
+  });
+  d3.selectAll('input[name="dm-color"]').on("change", function () {
+    state.dims.colorBy = this.value;
+    graphLayer.selectAll("g.dm-node").each(function (d) {
+      const sel = d3.select(this);
+      sel.select("circle").attr("fill", dimsNodeColor(d));
+      renderNodePie(sel, d);
+    });
+    renderDimsPanel();
+  });
+  d3.select("#dm-download").on("click", downloadDimsCSV);
+}
+
+function updateDimsTagDropdown() {
+  const cat = d3.select("#dm-category").property("value");
+  const tags = Array.from(state.frequencyByTag.keys())
+    .filter((t) => (state.metaByTag.get(t)?.category || "unknown") === cat)
+    .sort((x, y) => (state.frequencyByTag.get(y) - state.frequencyByTag.get(x)) || x.localeCompare(y, "ko"));
+  d3.select("#dm-tag").selectAll("option").data(tags).join("option")
+    .attr("value", (d) => d).text((d) => `${d} (${state.frequencyByTag.get(d)})`);
+  if (tags.includes(state.dims.focus)) d3.select("#dm-tag").property("value", state.dims.focus);
+}
+
+function renderDimsLegend() {
+  const host = d3.select("#dm-legend");
+  if (host.empty()) return;
+  const items = state.dims.colorBy === "l2"
+    ? L2_ORDER.map((c) => ({ label: c, color: layer2Color(c) }))
+    : L1_ORDER.map((c) => ({ label: formatCategory(c), color: categoryColor(c) }));
+  host.html(items.map((i) => `<span class="dm-legend-item"><span class="cat-dot" style="background:${i.color}"></span>${escapeHtml(i.label)}</span>`).join(""));
+}
+
+function renderDimsPanel() {
+  const r = state.dims.result;
+  if (!r) return;
+  const M = DIMS_METHODS[r.method];
+  d3.selectAll("#dm-method button")
+    .classed("active", function () { return this.dataset.method === r.method; })
+    .attr("aria-pressed", function () { return this.dataset.method === r.method ? "true" : "false"; });
+  d3.select("#dm-method-help").html(M.help);
+  d3.select("#dm-focus-block").classed("hidden", state.dims.scope !== "focus");
+  const fm = state.metaByTag.get(state.dims.focus);
+  d3.select("#dm-focus-current").html(
+    `<span class="cat-dot" style="background:${categoryColor(fm?.category)}"></span>${escapeHtml(state.dims.focus)}`);
+  d3.selectAll("#dm-x option, #dm-y option").text((k) => dimsAxisName(k, r.method));
+  d3.select("#dm-x").property("value", state.dims.x);
+  d3.select("#dm-y").property("value", state.dims.y);
+  renderDimsLegend();
+
+  const summary = d3.select("#dm-summary");
+  const exp = d3.select("#dm-explained");
+  const poles = d3.select("#dm-poles");
+  if (!r.coords.length) {
+    summary.text("Not enough works or hashtags for these settings: lower the minimum or widen the works included.");
+    exp.html(""); poles.html("");
+    return;
+  }
+  const scopeText = state.dims.scope === "focus"
+    ? `works with #${escapeHtml(state.dims.focus)} (the focus tag itself is left out, since every one of these works has it)`
+    : "all works with hashtags";
+  const dropped = r.droppedWorks ? ` ${r.droppedWorks} work${r.droppedWorks > 1 ? "s" : ""} with no hashtag left after the cut-off ${r.droppedWorks > 1 ? "were" : "was"} left out.` : "";
+  const two = (r.explained[state.dims.x] + r.explained[state.dims.y]) * 100;
+  summary.html(`<strong>${r.ids.length - r.droppedWorks}</strong> works × <strong>${r.tags.length}</strong> hashtags, from ${scopeText}.${dropped}
+    The two axes on the map explain <strong>${two.toFixed(1)}%</strong> of the variation together.`);
+
+  // Explained share per axis, against the share an axis would get if there were no structure at all.
+  const even = 1 / r.tags.length;
+  const maxE = Math.max(d3.max(r.explained), even);
+  exp.html(`
+    <div class="dm-bars">${r.explained.map((e, k) => `
+      <button type="button" class="dm-bar${k === state.dims.x || k === state.dims.y ? " active" : ""}" data-k="${k}"
+        title="${dimsAxisName(k, r.method)} explains ${(e * 100).toFixed(2)}%">
+        <span class="dm-bar-name">${dimsAxisName(k, r.method)}</span>
+        <span class="dm-bar-track"><span class="dm-bar-fill" style="width:${(e / maxE) * 100}%"></span>
+          <span class="dm-bar-even" style="left:${(even / maxE) * 100}%"></span></span>
+        <span class="dm-bar-val">${(e * 100).toFixed(1)}%</span>
+      </button>`).join("")}
+    </div>
+    <p class="small-note">The thin mark is ${(even * 100).toFixed(1)}%: what each axis would explain if the ${r.tags.length} hashtags
+      had nothing in common. With many yes/no hashtags each axis explains only a small share, so read an axis by
+      how far it stands above that mark and by the hashtags at its ends, not by the % alone.
+      Click a bar to show that axis vertically.</p>`);
+  exp.selectAll(".dm-bar").on("click", function () {
+    const k = +this.dataset.k;
+    if (k === state.dims.x || k === state.dims.y) return;
+    state.dims.y = k; // the clicked axis becomes the vertical one
+    updateNetwork();
+  });
+
+  // The hashtags at each end of the two axes on the map.
+  const N_POLE = 8;
+  const block = (k) => {
+    const items = r.tags.map((t, i) => ({ t, v: r.coords[i][k], f: r.freq.get(t) }));
+    const pos = items.filter((d) => d.v > 0).sort((a, b) => b.v - a.v).slice(0, N_POLE);
+    const neg = items.filter((d) => d.v < 0).sort((a, b) => a.v - b.v).slice(0, N_POLE);
+    const list = (arr) => arr.map((d) => {
+      const m = state.metaByTag.get(d.t);
+      const col = state.dims.colorBy === "l2" && m?.layer2?.length ? layer2Color(m.layer2[0]) : categoryColor(m?.category);
+      return `<li data-tag="${escapeHtml(d.t)}"><span class="cat-dot" style="background:${col}"></span><span class="dm-pole-tag">${escapeHtml(d.t)}</span><span class="dm-pole-v">${fmtCoord(d.v)}</span></li>`;
+    }).join("");
+    return `<div class="dm-pole-block">
+      <h3>${dimsAxisName(k, r.method)} <span class="dm-pole-pct">${((r.explained[k] || 0) * 100).toFixed(1)}%</span>
+        <span class="dm-pole-where">${k === state.dims.x ? "horizontal" : "vertical"}</span></h3>
+      <div class="dm-pole-cols">
+        <div><div class="an-sub">+ end</div><ol>${list(pos)}</ol></div>
+        <div><div class="an-sub">− end</div><ol>${list(neg)}</ol></div>
+      </div></div>`;
+  };
+  poles.html(block(state.dims.x) + block(state.dims.y));
+  poles.selectAll("li").on("mouseenter", function () {
+    const t = this.dataset.tag;
+    graphLayer.selectAll("g.dm-node").classed("dm-hl", (d) => d.id === t).filter((d) => d.id === t).raise();
+  }).on("mouseleave", () => graphLayer.selectAll("g.dm-node").classed("dm-hl", false));
+}
+
+function downloadDimsCSV() {
+  const r = computeDims();
+  if (!r.coords.length) return;
+  const axes = d3.range(r.explained.length).map((k) => dimsAxisName(k, r.method));
+  const rows = [
+    ["# method", DIMS_METHODS[r.method].label],
+    ["# works", state.dims.scope === "focus" ? `only works with ${state.dims.focus} (focus tag left out)` : "all works with hashtags"],
+    ["# works used", r.ids.length - r.droppedWorks],
+    ["# hashtags on at least", state.dims.minWorks, "works"],
+    ["# 로맨스판타지 included", state.dims.includeRomance ? "yes" : "no"],
+    ["# sign rule", "each axis is flipped so that its most extreme hashtag is positive"],
+    ["# coordinate", r.method === "pca" ? "correlation of the hashtag with the axis (loading × √eigenvalue)" : "principal coordinate"],
+    ["# explained", ...r.explained.map((e, k) => `${axes[k]} ${(e * 100).toFixed(2)}%`)],
+    [],
+    ["hashtag", "layer1", "layer2", "works", ...axes]
+  ];
+  r.tags.forEach((t, i) => {
+    const m = state.metaByTag.get(t) || {};
+    rows.push([t, m.category || "", (m.layer2 || []).join("; "), r.freq.get(t), ...r.coords[i].map((v) => v.toFixed(4))]);
+  });
+  const tagPart = state.dims.scope === "focus" ? `_${state.dims.focus}` : "_all";
+  downloadCSV(`dimensions_${r.method}${tagPart}.csv`, rows);
 }
