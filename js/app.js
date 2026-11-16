@@ -34,7 +34,7 @@ const state = {
   compareWorks: new Set(),
   // Analysis tab (hashtag lens)
   // hidden: hashtags left out of both ① and ② (로맨스판타지 by default)
-  analysis: { layout: "network", embed: "tsne", embedCache: null, focus: "능력녀", method: "works", jaccard: 0.2, hidden: new Set(["로맨스판타지"]), result: null, sort: "together",
+  analysis: { layout: "embed", embed: "tsne", embedCache: null, focus: "능력녀", method: "works", jaccard: 0.2, hidden: new Set(["로맨스판타지"]), result: null, sort: "together",
     runSeed: null, nextSeed: 11, align: false, tableCats: null,
     clusterCats: null, expanded: new Set(),
     // clustering method for ② Clusters: "louvain" or "ward"; k = Ward's number of clusters (null = match Louvain)
@@ -632,7 +632,7 @@ function setViewMode(mode, initial = false) {
     return !this.dataset.modes.split(" ").includes(key);
   });
   d3.select("#mode-help").text(MODE_HELP[key] || "");
-  d3.select(".pin-bar").classed("mode-hidden", key === "tag:dimensions");
+  d3.select(".pin-bar").classed("mode-hidden", key === "tag:dimensions" || (key === "tag:analysis" && state.analysis.layout === "embed"));
   hideNodeTooltip();
   d3.select("#inspector").html(state.lens === "work"
     ? "Click a link between two works to see the hashtags they share."
@@ -2869,7 +2869,8 @@ function drawNetwork(graph) {
   .data(nodes)
   .join("g")
   .attr("class", "node")
-  .call(drag(simulation))
+  // Embedding map: positions are the result of the calculation, so they cannot be dragged or pinned.
+  .call(embedMode ? () => {} : drag(simulation))
   .on("mouseenter", function (event, d) {
     // Work nodes: hover shows the title label only.
     if (d.type === "work") {
@@ -2903,6 +2904,7 @@ function drawNetwork(graph) {
   .on("dblclick", function (event, d) {
     event.stopPropagation();
     clearTimeout(nodeClickTimer);
+    if (embedMode) return;
     togglePin(d, d3.select(this));
     simulation.alpha(0.3).restart();
   });
@@ -4636,13 +4638,16 @@ function renderEmbedControls() {
     .attr("aria-pressed", function () { return this.dataset.embed === a.embed ? "true" : "false"; });
   d3.select("#an-embed-row").classed("hidden", a.layout !== "embed");
   d3.select("#an-embed-help").html(EMBED_METHODS[a.embed].help +
-    " Positions do not depend on Louvain or Ward, so switching the method only changes the colours.");
+    " Positions do not depend on Louvain or Ward, so switching the method only changes the colours." +
+    " Dots cannot be dragged, because their positions are the result (overlapping dots are only nudged apart by a few pixels)." +
+    " Zooming scales every distance by the same amount, so the picture stays the same; the Magnifier is a reading loupe that bends distances locally.");
 }
 
 function setupEmbedControls() {
   d3.selectAll("#an-layout button").on("click", function () {
     if (state.analysis.layout === this.dataset.layout) return;
     state.analysis.layout = this.dataset.layout;
+    d3.select(".pin-bar").classed("mode-hidden", this.dataset.layout === "embed");
     updateNetwork();
   });
   d3.selectAll("#an-embed-alg button").on("click", function () {
