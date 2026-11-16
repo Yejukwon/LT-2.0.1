@@ -2772,13 +2772,21 @@ function drawNetwork(graph) {
   } else if (embedMode) {
     // Each node is held at its embedding position; a light collision only
     // nudges dots that would sit exactly on top of each other.
+    // Springs: each dot is tied to its most similar items, more strongly the more
+    // they overlap. The springs' rest length is the distance on the map, so at
+    // rest they pull on nothing and every dot sits exactly at its computed place.
+    // Pull a dot and its neighbours follow; let go and everything springs back.
+    const springs = embedSprings(nodes);
     simulation
-      .force("link", null)
+      .force("link", d3.forceLink(springs).id((d) => d.id)
+        .distance((l) => Math.hypot(l.source.ex - l.target.ex, l.source.ey - l.target.ey))
+        .strength((l) => 0.08 + 0.5 * l.sim))
       .force("charge", null)
       .force("bounds", null)
       .force("collision", d3.forceCollide().radius((d) => nodeRadius(d) + 1.5).strength(0.6))
-      .force("x", d3.forceX((d) => d.ex).strength(0.5))
-      .force("y", d3.forceY((d) => d.ey).strength(0.5));
+      .force("x", d3.forceX((d) => d.ex).strength(0.06))
+      .force("y", d3.forceY((d) => d.ey).strength(0.06));
+    simulation.__springs = springs;
     drawEmbeddingGuides(width, height);
   } else if (isClusters) {
     const layout = { k: Math.max(1, graph.clusterCount) };
@@ -2870,7 +2878,8 @@ function drawNetwork(graph) {
   .join("g")
   .attr("class", "node")
   // Embedding map: positions are the result of the calculation, so they cannot be dragged or pinned.
-  .call(embedMode ? () => {} : drag(simulation))
+  // Embedding map: a dot can be pulled to feel its ties, but it always springs back.
+  .call(embedMode ? embedDrag(simulation) : drag(simulation))
   .on("mouseenter", function (event, d) {
     // Work nodes: hover shows the title label only.
     if (d.type === "work") {
@@ -4468,6 +4477,8 @@ function downloadDimsCSV() {
 // ======================================================================
 // ---- Analysis: embedding map (items placed by hashtag overlap, no lines) ----
 // ======================================================================
+const EMBED_SPRINGS = 5; // each dot is tied to its 5 most similar items
+
 const EMBED_METHODS = {
   tsne: {
     label: "t-SNE",
@@ -4601,7 +4612,15 @@ function analysisEmbedding() {
   const D = jaccardDistanceMatrix(sets);
   const mds = classicalMDS(D);
   const Y = a.embed === "tsne" ? tsneLayout(D, mds) : mds;
-  a.embedCache = { key, pos: new Map(ids.map((id, i) => [id, Y[i]])) };
+  // Each item's closest neighbours (by hashtag overlap): the springs used when a dot is pulled.
+  const nbrs = new Map(ids.map((id, i) => {
+    const list = ids.map((other, j) => ({ id: other, sim: 1 - D[i][j] }))
+      .filter((x, j) => j !== i && x.sim > 0)
+      .sort((p, q) => q.sim - p.sim)
+      .slice(0, EMBED_SPRINGS);
+    return [id, list];
+  }));
+  a.embedCache = { key, pos: new Map(ids.map((id, i) => [id, Y[i]])), nbrs };
   return a.embedCache;
 }
 
@@ -4625,7 +4644,7 @@ function placeEmbedding(nodes, width, height) {
 function drawEmbeddingGuides(width, height) {
   const name = EMBED_METHODS[state.analysis.embed].label;
   graphLayer.append("text").attr("class", "embed-note").attr("x", 20).attr("y", height - 18)
-    .text(`Embedding map (${name}) · position = hashtag overlap · colour = cluster · no lines`);
+    .text(`Embedding map (${name}) · position = hashtag overlap · colour = cluster · pull a dot to see its ties`);
 }
 
 function renderEmbedControls() {
@@ -4639,7 +4658,8 @@ function renderEmbedControls() {
   d3.select("#an-embed-row").classed("hidden", a.layout !== "embed");
   d3.select("#an-embed-help").html(EMBED_METHODS[a.embed].help +
     " Positions do not depend on Louvain or Ward, so switching the method only changes the colours." +
-    " Dots cannot be dragged, because their positions are the result (overlapping dots are only nudged apart by a few pixels)." +
+    " Pull a dot to feel its ties: lines show its " + EMBED_SPRINGS + " most similar items (thicker = more overlap) and they are tugged along;" +
+    " let go and everything springs back, because the positions are the result (overlapping dots are only nudged apart by a few pixels)." +
     " Zooming scales every distance by the same amount, so the picture stays the same; the Magnifier is a reading loupe that bends distances locally.");
 }
 
@@ -4655,4 +4675,55 @@ function setupEmbedControls() {
     state.analysis.embed = this.dataset.embed;
     updateNetwork();
   });
+}
+
+function embedSprings(nodes) {
+  const { nbrs } = analysisEmbedding();
+  const have = new Set(nodes.map((n) => n.id));
+  const seen = new Set();
+  const out = [];
+  for (const n of nodes) {
+    for (const x of nbrs.get(n.id) || []) {
+      if (!have.has(x.id)) continue;
+      const k = n.id < x.id ? n.id + "|" + x.id : x.id + "|" + n.id;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push({ source: n.id, target: x.id, sim: x.sim });
+    }
+  }
+  return out;
+}
+
+// Pull-and-release drag for the embedding map: while held, the dot's springs are
+// drawn and its neighbours are tugged along; on release it returns to its place.
+function embedDrag(simulation) {
+  let lines = null;
+  const ties = (d) => (simulation.__springs || []).filter((l) => l.source === d || l.target === d);
+  const drawTies = (d) => {
+    if (!lines) return;
+    lines.selectAll("line").data(ties(d)).join("line")
+      .attr("class", "embed-tie")
+      .attr("stroke-width", (l) => 0.8 + l.sim * 4)
+      .attr("x1", (l) => l.source.x).attr("y1", (l) => l.source.y)
+      .attr("x2", (l) => l.target.x).attr("y2", (l) => l.target.y);
+  };
+  return d3.drag()
+    .on("start", (event, d) => {
+      magnifier.dragging = true;
+      if (!event.active) simulation.alphaTarget(0.3).restart();
+      d.fx = d.x; d.fy = d.y;
+      lines = graphLayer.insert("g", ".nodes").attr("class", "embed-ties");
+      simulation.on("tick.ties", () => drawTies(d));
+      drawTies(d);
+    })
+    .on("drag", (event, d) => { d.fx = event.x; d.fy = event.y; })
+    .on("end", (event, d) => {
+      magnifier.dragging = false;
+      if (!event.active) simulation.alphaTarget(0);
+      d.fx = null; d.fy = null;
+      simulation.on("tick.ties", null);
+      if (lines) lines.remove();
+      lines = null;
+      simulation.alpha(0.8).restart();
+    });
 }

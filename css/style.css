@@ -1608,3 +1608,4 @@ g.node.dendro-hl text { font-weight: 700; display: inline !important; }
 .an-embed-alg button { font-size: 12px; padding: 5px 4px; }
 .embed-note { font-size: 12px; fill: #8a817c; }
 .dm-kw { margin-left: 4px; font-size: 10px; color: #8a817c; vertical-align: 1px; }
+.embed-ties line.embed-tie { stroke: #3d3633; stroke-opacity: 0.45; pointer-events: none; }
