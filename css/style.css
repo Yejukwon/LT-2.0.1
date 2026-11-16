@@ -1597,3 +1597,13 @@ g.node.dendro-hl text { font-weight: 700; display: inline !important; }
 .dm-cats .an-sub { margin-top: 8px; }
 .dm-cats .secondary-button { margin-top: 8px; }
 .dm-hidden-note { margin: 8px 0 0; padding: 6px 8px; background: #f5f0ec; border-radius: 6px; }
+.dm-axis-name { font-size: 12px; font-weight: 600; fill: #6b625e; }
+.dm-pole-name { font-size: 12px; font-weight: 700; color: #2b2624; margin: 1px 0 3px; }
+.dm-names-note { margin: 4px 0 0; }
+#dm-x, #dm-y { font-size: 12px; }
+.dm-axis-row { grid-template-columns: 1fr; gap: 0; }
+/* ---- Analysis embedding map ---- */
+#an-embed-row.hidden { display: none; }
+.an-embed-alg { margin-top: 6px; }
+.an-embed-alg button { font-size: 12px; padding: 5px 4px; }
+.embed-note { font-size: 12px; fill: #8a817c; }

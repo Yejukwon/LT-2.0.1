@@ -34,7 +34,7 @@ const state = {
   compareWorks: new Set(),
   // Analysis tab (hashtag lens)
   // hidden: hashtags left out of both ① and ② (로맨스판타지 by default)
-  analysis: { focus: "능력녀", method: "works", jaccard: 0.2, hidden: new Set(["로맨스판타지"]), result: null, sort: "together",
+  analysis: { layout: "network", embed: "tsne", embedCache: null, focus: "능력녀", method: "works", jaccard: 0.2, hidden: new Set(["로맨스판타지"]), result: null, sort: "together",
     runSeed: null, nextSeed: 11, align: false, tableCats: null,
     clusterCats: null, expanded: new Set(),
     // clustering method for ② Clusters: "louvain" or "ward"; k = Ward's number of clusters (null = match Louvain)
@@ -79,6 +79,7 @@ Promise.all([
     setupWorkLensControls();
     setupAnalysisControls();
     setupDimsControls();
+    setupEmbedControls();
     setupClosenessControls();
     setupMagnifier();
     setupModeSwitch();
@@ -274,7 +275,8 @@ function setupControls() {
 
 function currentPins() {
   const closeView = state.lens === "tag" && state.viewMode === "full" && state.closeness.on;
-  const key = `${state.lens}:${state.viewMode}${closeView ? ":closeness" : ""}`;
+  const embedView = state.lens === "tag" && state.viewMode === "analysis" && state.analysis.layout === "embed";
+  const key = `${state.lens}:${state.viewMode}${closeView ? ":closeness" : ""}${embedView ? ":embed" : ""}`;
   if (!state.pinsByMode[key]) state.pinsByMode[key] = new Map();
   return state.pinsByMode[key];
 }
@@ -533,7 +535,7 @@ function updateNetwork() {
     updateCompareFilterNote();
     renderWorksList();
     if (mode === "comparison") compareSelectedTags();
-    if (mode === "analysis") renderAnalysisPanel();
+    if (mode === "analysis") { renderAnalysisPanel(); renderEmbedControls(); }
     if (mode === "dimensions") renderDimsPanel();
     if (mode === "full") renderClosenessPanel();
   } else {
@@ -1611,7 +1613,7 @@ function runAnalysis() {
   });
 
   return {
-    kind, nodes, edges, degree, clusterOf, clusters, unlinked, freqWithin,
+    kind, nodes, edges, degree, clusterOf, clusters, unlinked, freqWithin, workSetById,
     modularity: r.modularity, qMin: batch.qMin, qMax: batch.qMax, runs: batch.runs, seed: r.seed,
     bestSeed: batch.seed, singleRun: !!single,
     changed: prev ? compareToPrevious(nodes, prev, clusterOf) : null,
@@ -2696,6 +2698,12 @@ function drawNetwork(graph) {
   const isClusters = graph.mode === "clusters";
   // Work-node maps (work network, or works grouped into clusters).
   const workNet = graph.mode === "worknet" || (isClusters && graph.kind === "work");
+  // Embedding map: positions come from hashtag overlap (t-SNE or MDS), no lines.
+  const embedMode = isClusters && state.analysis.layout === "embed";
+  if (embedMode) {
+    placeEmbedding(nodes, width, height);
+    links = [];
+  }
 
   const simulation = d3.forceSimulation(nodes)
   .force("link", (() => {
@@ -2761,6 +2769,17 @@ function drawNetwork(graph) {
       .force("x", d3.forceX((d) => d.tx).strength((d) => (d.closeness?.isFocus ? 1 : 0.5)))
       .force("y", d3.forceY((d) => d.ty).strength((d) => (d.closeness?.isFocus ? 1 : 0.5)));
     drawClosenessGuides(closeLayout);
+  } else if (embedMode) {
+    // Each node is held at its embedding position; a light collision only
+    // nudges dots that would sit exactly on top of each other.
+    simulation
+      .force("link", null)
+      .force("charge", null)
+      .force("bounds", null)
+      .force("collision", d3.forceCollide().radius((d) => nodeRadius(d) + 1.5).strength(0.6))
+      .force("x", d3.forceX((d) => d.ex).strength(0.5))
+      .force("y", d3.forceY((d) => d.ey).strength(0.5));
+    drawEmbeddingGuides(width, height);
   } else if (isClusters) {
     const layout = { k: Math.max(1, graph.clusterCount) };
     simulation.__clusterLayout = layout;
@@ -4017,6 +4036,53 @@ function computeDims() {
   return state.dims.result;
 }
 
+// Interpretive names for each end of an axis ([+ end, − end]), written by reading the
+// hashtags at the two ends. They are only valid for these exact settings
+// (method | works | focus | min works | 로맨스판타지 included); other settings show numbers only.
+const DIMS_AXIS_NAMES = {
+  "pca|all||3|false": [
+    ["가족·성장 힐링", "계략·코믹 빙의 로맨스"],
+    ["착각·첫사랑 연애", "궁정·앙숙 드라마"],
+    ["코믹·치유 톤", "남주 매력·설정 중심"],
+    ["복수·회귀 궁정극", "로코·티키타카"],
+    ["사이다 능력 여주", "다정·힐링 여주"]
+  ],
+  "ca|all||3|false": [
+    ["일상·성장 (현대·학원)", "궁정·계략 로맨스"],
+    ["궁정·앙숙 드라마", "착각·연하 연애"],
+    ["코믹 계약·현대", "시대극·정통 로맨스"],
+    ["악녀·회귀 복수", "연하·재회 판타지 연애"],
+    ["이세계·초월 설정", "감정 서사 (재회·짝사랑)"]
+  ],
+  "pca|focus|능력녀|3|false": [
+    ["가족·성장·복수 서사", "코믹·착각 로맨스"],
+    ["순정·운명 남주", "계약·로코"],
+    ["쿨한 궁정 걸크러쉬", "다정·착각 로코"],
+    ["앙숙·집착 로코", "순정·정략 궁정"],
+    ["사이다·계략·집착", "직진·힐링 운명"]
+  ],
+  "ca|focus|능력녀|3|false": [
+    ["연하·착각 연애", "가족·성장 힐링"],
+    ["궁정·시대극", "현대·코믹 계약"],
+    ["첫사랑·재회 운명", "학원·역하렘"],
+    ["학원·라이벌", "궁정·정략"],
+    ["차원이동·초월 판타지", "달달·치유 로맨스"]
+  ]
+};
+
+// [+ name, − name] for axis k under the current settings, or null.
+function dimsPoleNames(k) {
+  const r = state.dims.result;
+  const names = r && DIMS_AXIS_NAMES[r.key];
+  return names && names[k] ? names[k] : null;
+}
+
+// "PC2 (착각·첫사랑 연애 ↔ 궁정·앙숙 드라마)" when a name exists, else "PC2".
+function dimsAxisLabel(k, method = state.dims.method) {
+  const n = dimsPoleNames(k);
+  return n ? `${dimsAxisName(k, method)} (${n[0]} ↔ ${n[1]})` : dimsAxisName(k, method);
+}
+
 function dimsAxisName(k, method = state.dims.method) {
   return `${DIMS_METHODS[method].axis}${k + 1}`;
 }
@@ -4098,7 +4164,7 @@ function drawDimensions(graph, width, height) {
     return;
   }
   // Same scale on both axes so distances on the map are honest; origin in the middle.
-  const margin = { l: 80, r: 120, t: 70, b: 80 };
+  const margin = { l: 80, r: 120, t: 70, b: 96 };
   const ax = d3.max(nodes, (n) => Math.abs(n.dims[kx])) || 1;
   const ay = d3.max(nodes, (n) => Math.abs(n.dims[ky])) || 1;
   const s = Math.min((width - margin.l - margin.r) / (2 * ax), (height - margin.t - margin.b) / (2 * ay));
@@ -4132,10 +4198,18 @@ function drawDimensions(graph, width, height) {
     .text(pct(kx));
   guides.append("text").attr("class", "dm-axis-title").attr("x", x0 - 6).attr("y", cy - 8).attr("text-anchor", "end")
     .text(`${dimsAxisName(kx, r.method)} −`);
+  const ny = dimsPoleNames(ky), nx = dimsPoleNames(kx);
   guides.append("text").attr("class", "dm-axis-title").attr("x", cx).attr("y", y0 - 8).attr("text-anchor", "middle")
-    .text(`${dimsAxisName(ky, r.method)} +  (${pct(ky)})`);
+    .text(`${dimsAxisName(ky, r.method)} +  ${ny ? "· " + ny[0] + "  " : ""}(${pct(ky)})`);
   guides.append("text").attr("class", "dm-axis-title").attr("x", cx).attr("y", y1 + 30).attr("text-anchor", "middle")
-    .text(`${dimsAxisName(ky, r.method)} −`);
+    .text(`${dimsAxisName(ky, r.method)} −${ny ? "  · " + ny[1] : ""}`);
+  // names of the horizontal ends, under the map at each side
+  if (nx) {
+    guides.append("text").attr("class", "dm-axis-name").attr("x", x0).attr("y", y1 + 52).attr("text-anchor", "start")
+      .text(`← ${dimsAxisName(kx, r.method)} − · ${nx[1]}`);
+    guides.append("text").attr("class", "dm-axis-name").attr("x", x1).attr("y", y1 + 52).attr("text-anchor", "end")
+      .text(`${dimsAxisName(kx, r.method)} + · ${nx[0]} →`);
+  }
 
   for (const n of nodes) { n.x = X(n.dims[kx]); n.y = Y(n.dims[ky]); }
 
@@ -4191,7 +4265,7 @@ function showDimsTooltip(event, d) {
 
 function showDimsInspector(d) {
   const r = state.dims.result;
-  const rows = d.dims.map((v, k) => `<tr><td>${dimsAxisName(k, r.method)}</td><td class="num">${((r.explained[k] || 0) * 100).toFixed(1)}%</td><td class="num">${fmtCoord(v)}</td></tr>`).join("");
+  const rows = d.dims.map((v, k) => `<tr><td>${escapeHtml(dimsAxisLabel(k, r.method))}</td><td class="num">${((r.explained[k] || 0) * 100).toFixed(1)}%</td><td class="num">${fmtCoord(v)}</td></tr>`).join("");
   d3.select("#inspector").html(`
     <div class="inspector-card">
       <h3>${escapeHtml(d.label)}</h3>
@@ -4300,7 +4374,7 @@ function renderDimsPanel() {
   const fm = state.metaByTag.get(state.dims.focus);
   d3.select("#dm-focus-current").html(
     `<span class="cat-dot" style="background:${categoryColor(fm?.category)}"></span>${escapeHtml(state.dims.focus)}`);
-  d3.selectAll("#dm-x option, #dm-y option").text((k) => dimsAxisName(k, r.method));
+  d3.selectAll("#dm-x option, #dm-y option").text((k) => dimsAxisLabel(k, r.method));
   d3.select("#dm-x").property("value", state.dims.x);
   d3.select("#dm-y").property("value", state.dims.y);
   renderDimsLegend();
@@ -4327,7 +4401,7 @@ function renderDimsPanel() {
   exp.html(`
     <div class="dm-bars">${r.explained.map((e, k) => `
       <button type="button" class="dm-bar${k === state.dims.x || k === state.dims.y ? " active" : ""}" data-k="${k}"
-        title="${dimsAxisName(k, r.method)} explains ${(e * 100).toFixed(2)}%">
+        title="${escapeHtml(dimsAxisLabel(k, r.method))} explains ${(e * 100).toFixed(2)}%">
         <span class="dm-bar-name">${dimsAxisName(k, r.method)}</span>
         <span class="dm-bar-track"><span class="dm-bar-fill" style="width:${(e / maxE) * 100}%"></span>
           <span class="dm-bar-even" style="left:${(even / maxE) * 100}%"></span></span>
@@ -4356,16 +4430,20 @@ function renderDimsPanel() {
       const col = state.dims.colorBy === "l2" && m?.layer2?.length ? layer2Color(m.layer2[0]) : categoryColor(m?.category);
       return `<li data-tag="${escapeHtml(d.t)}"><span class="cat-dot" style="background:${col}"></span><span class="dm-pole-tag">${escapeHtml(d.t)}</span><span class="dm-pole-v">${fmtCoord(d.v)}</span></li>`;
     }).join("");
+    const nm = dimsPoleNames(k);
     return `<div class="dm-pole-block">
       <h3>${dimsAxisName(k, r.method)} <span class="dm-pole-pct">${((r.explained[k] || 0) * 100).toFixed(1)}%</span>
         <span class="dm-pole-where">${k === state.dims.x ? "horizontal" : "vertical"}</span></h3>
       <div class="dm-pole-cols">
-        <div><div class="an-sub">+ end</div><ol>${list(pos)}</ol></div>
-        <div><div class="an-sub">− end</div><ol>${list(neg)}</ol></div>
+        <div><div class="an-sub">+ end</div>${nm ? `<div class="dm-pole-name">${escapeHtml(nm[0])}</div>` : ""}<ol>${list(pos)}</ol></div>
+        <div><div class="an-sub">− end</div>${nm ? `<div class="dm-pole-name">${escapeHtml(nm[1])}</div>` : ""}<ol>${list(neg)}</ol></div>
       </div></div>`;
   };
   const nHidden = r.tags.filter((t) => !dimsVisible(t)).length;
-  poles.html((nHidden ? `<p class="small-note dm-hidden-note">${nHidden} of ${r.tags.length} hashtags are hidden by the category checkboxes; the lists below skip them.</p>` : "") +
+  const namesNote = DIMS_AXIS_NAMES[r.key]
+    ? `<p class="small-note dm-names-note">The names of the axis ends (e.g. “${escapeHtml(DIMS_AXIS_NAMES[r.key][1][0])}”) are an interpretation, read from the hashtags at each end. They are written for these settings only; other settings show axis numbers only.</p>`
+    : `<p class="small-note dm-names-note">Axis names are written only for the default settings (hashtags on at least 3 works, 로맨스판타지 left out, all works or 능력녀 works). Read these axes from the hashtags at each end.</p>`;
+  poles.html(namesNote + (nHidden ? `<p class="small-note dm-hidden-note">${nHidden} of ${r.tags.length} hashtags are hidden by the category checkboxes; the lists below skip them.</p>` : "") +
     block(state.dims.x) + block(state.dims.y));
   poles.selectAll("li").on("mouseenter", function () {
     const t = this.dataset.tag;
@@ -4386,6 +4464,7 @@ function downloadDimsCSV() {
     ["# sign rule", "each axis is flipped so that its most extreme hashtag is positive"],
     ["# coordinate", r.method === "pca" ? "correlation of the hashtag with the axis (loading × √eigenvalue)" : "principal coordinate"],
     ["# explained", ...r.explained.map((e, k) => `${axes[k]} ${(e * 100).toFixed(2)}%`)],
+    ...(DIMS_AXIS_NAMES[r.key] ? [["# axis names (interpretation: + end ↔ − end)", ...axes.map((a, k) => `${a}: ${DIMS_AXIS_NAMES[r.key][k][0]} ↔ ${DIMS_AXIS_NAMES[r.key][k][1]}`)]] : []),
     [],
     ["hashtag", "layer1", "layer2", "works", ...axes]
   ];
@@ -4395,4 +4474,193 @@ function downloadDimsCSV() {
   });
   const tagPart = state.dims.scope === "focus" ? `_${state.dims.focus}` : "_all";
   downloadCSV(`dimensions_${r.method}${tagPart}.csv`, rows);
+}
+
+// ======================================================================
+// ---- Analysis: embedding map (items placed by hashtag overlap, no lines) ----
+// ======================================================================
+const EMBED_METHODS = {
+  tsne: {
+    label: "t-SNE",
+    help: "Keeps each item next to its <strong>nearest neighbours</strong> (by hashtag overlap, Jaccard). Good at showing " +
+      "groups as islands; the distance between far-apart islands and the size of an island mean little. " +
+      "Started from the MDS layout, so it gives the same map every time."
+  },
+  mds: {
+    label: "MDS",
+    help: "Places items so that distances on the map match the <strong>Jaccard distances</strong> (1 − overlap) as closely " +
+      "as two dimensions allow. Far apart really means different, but groups overlap more because only two " +
+      "dimensions are kept."
+  }
+};
+
+function embedItems(res) {
+  const ids = res.nodes.slice().sort();
+  let sets;
+  if (res.kind === "work") {
+    sets = ids.map((id) => res.workSetById.get(id) || new Set());
+  } else {
+    // a hashtag = the set of analysed works it appears in
+    const byTag = new Map(ids.map((t) => [t, new Set()]));
+    for (const [w, tags] of res.workSetById) for (const t of tags) if (byTag.has(t)) byTag.get(t).add(w);
+    sets = ids.map((t) => byTag.get(t));
+  }
+  return { ids, sets };
+}
+
+function jaccardDistanceMatrix(sets) {
+  const n = sets.length;
+  const D = Array.from({ length: n }, () => new Float64Array(n));
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const a = sets[i], b = sets[j];
+      let shared = 0;
+      for (const x of a) if (b.has(x)) shared++;
+      const union = a.size + b.size - shared;
+      D[i][j] = D[j][i] = union ? 1 - shared / union : 0;
+    }
+  }
+  return D;
+}
+
+// Classical (Torgerson) MDS to 2 dimensions.
+function classicalMDS(D) {
+  const n = D.length;
+  const D2 = D.map((r) => Array.from(r, (x) => x * x));
+  const rowMean = D2.map((r) => r.reduce((s, x) => s + x, 0) / n);
+  const all = rowMean.reduce((s, x) => s + x, 0) / n;
+  const B = D2.map((r, i) => r.map((x, j) => -0.5 * (x - rowMean[i] - rowMean[j] + all)));
+  const { values, vectors } = symmetricEigen(B);
+  const Y = vectors.map((row) => [0, 1].map((k) => row[k] * Math.sqrt(Math.max(0, values[k]))));
+  fixSigns(Y, 2);
+  return Y;
+}
+
+// Exact t-SNE (van der Maaten & Hinton 2008), deterministic: starts from the MDS layout.
+function tsneLayout(D, init) {
+  const n = D.length;
+  if (n < 4) return init.map((r) => r.slice());
+  const perplexity = Math.max(2, Math.min(15, (n - 1) / 3));
+  const logU = Math.log(perplexity);
+  const P = Array.from({ length: n }, () => new Float64Array(n));
+  for (let i = 0; i < n; i++) {
+    let beta = 1, lo = -Infinity, hi = Infinity;
+    for (let it = 0; it < 60; it++) {
+      let sum = 0, h = 0;
+      for (let j = 0; j < n; j++) {
+        if (j === i) { P[i][j] = 0; continue; }
+        const v = Math.exp(-D[i][j] * D[i][j] * beta);
+        P[i][j] = v; sum += v;
+      }
+      sum = sum || 1e-12;
+      for (let j = 0; j < n; j++) {
+        if (j === i) continue;
+        P[i][j] /= sum;
+        if (P[i][j] > 1e-12) h -= P[i][j] * Math.log(P[i][j]);
+      }
+      if (Math.abs(h - logU) < 1e-5) break;
+      if (h > logU) { lo = beta; beta = hi === Infinity ? beta * 2 : (beta + hi) / 2; }
+      else { hi = beta; beta = lo === -Infinity ? beta / 2 : (beta + lo) / 2; }
+    }
+  }
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+    const v = Math.max((P[i][j] + P[j][i]) / (2 * n), 1e-12);
+    P[i][j] = P[j][i] = v;
+  }
+  // start: MDS scaled to a tiny spread
+  const sd = Math.sqrt(d3.mean(init, (r) => r[0] * r[0])) || 1;
+  const Y = init.map((r) => [r[0] / sd * 1e-4, r[1] / sd * 1e-4]);
+  const V = Y.map(() => [0, 0]);
+  const G = Y.map(() => [1, 1]);
+  const lr = Math.max(n / 12 / 4, 50);
+  const num = Array.from({ length: n }, () => new Float64Array(n));
+  for (let iter = 0; iter < 1000; iter++) {
+    const ex = iter < 250 ? 12 : 1;
+    const mom = iter < 250 ? 0.5 : 0.8;
+    let sumQ = 0;
+    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+      const dx = Y[i][0] - Y[j][0], dy = Y[i][1] - Y[j][1];
+      const q = 1 / (1 + dx * dx + dy * dy);
+      num[i][j] = num[j][i] = q; sumQ += 2 * q;
+    }
+    for (let i = 0; i < n; i++) {
+      let gx = 0, gy = 0;
+      for (let j = 0; j < n; j++) {
+        if (j === i) continue;
+        const m = (ex * P[i][j] - num[i][j] / sumQ) * num[i][j];
+        gx += m * (Y[i][0] - Y[j][0]); gy += m * (Y[i][1] - Y[j][1]);
+      }
+      const g = [4 * gx, 4 * gy];
+      for (let d = 0; d < 2; d++) {
+        G[i][d] = Math.sign(g[d]) !== Math.sign(V[i][d]) ? G[i][d] + 0.2 : Math.max(0.01, G[i][d] * 0.8);
+        V[i][d] = mom * V[i][d] - lr * G[i][d] * g[d];
+      }
+    }
+    for (let i = 0; i < n; i++) { Y[i][0] += V[i][0]; Y[i][1] += V[i][1]; }
+    const mx = d3.mean(Y, (r) => r[0]), my = d3.mean(Y, (r) => r[1]);
+    for (const r of Y) { r[0] -= mx; r[1] -= my; }
+  }
+  return Y;
+}
+
+function analysisEmbedding() {
+  const a = state.analysis;
+  const res = a.result;
+  const key = [res.method, res.focus, res.hidden.slice().sort().join(","), a.embed].join("|");
+  if (a.embedCache && a.embedCache.key === key) return a.embedCache;
+  const { ids, sets } = embedItems(res);
+  const D = jaccardDistanceMatrix(sets);
+  const mds = classicalMDS(D);
+  const Y = a.embed === "tsne" ? tsneLayout(D, mds) : mds;
+  a.embedCache = { key, pos: new Map(ids.map((id, i) => [id, Y[i]])) };
+  return a.embedCache;
+}
+
+// Fit the embedding into the map (same scale on both axes) and store targets.
+function placeEmbedding(nodes, width, height) {
+  const { pos } = analysisEmbedding();
+  const pts = nodes.map((n) => pos.get(n.id) || [0, 0]);
+  const m = { l: 60, r: 150, t: 50, b: 50 };
+  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+  const [x0, x1] = d3.extent(xs), [y0, y1] = d3.extent(ys);
+  const s = Math.min((width - m.l - m.r) / ((x1 - x0) || 1), (height - m.t - m.b) / ((y1 - y0) || 1));
+  const ox = m.l + (width - m.l - m.r - (x1 - x0) * s) / 2;
+  const oy = m.t + (height - m.t - m.b - (y1 - y0) * s) / 2;
+  nodes.forEach((n, i) => {
+    n.ex = ox + (pts[i][0] - x0) * s;
+    n.ey = oy + (pts[i][1] - y0) * s;
+    if (n.fx == null) { n.x = n.ex; n.y = n.ey; }
+  });
+}
+
+function drawEmbeddingGuides(width, height) {
+  const name = EMBED_METHODS[state.analysis.embed].label;
+  graphLayer.append("text").attr("class", "embed-note").attr("x", 20).attr("y", height - 18)
+    .text(`Embedding map (${name}) · position = hashtag overlap · colour = cluster · no lines`);
+}
+
+function renderEmbedControls() {
+  const a = state.analysis;
+  d3.selectAll("#an-layout button")
+    .classed("active", function () { return this.dataset.layout === a.layout; })
+    .attr("aria-pressed", function () { return this.dataset.layout === a.layout ? "true" : "false"; });
+  d3.selectAll("#an-embed-alg button")
+    .classed("active", function () { return this.dataset.embed === a.embed; })
+    .attr("aria-pressed", function () { return this.dataset.embed === a.embed ? "true" : "false"; });
+  d3.select("#an-embed-row").classed("hidden", a.layout !== "embed");
+  d3.select("#an-embed-help").html(EMBED_METHODS[a.embed].help +
+    " Positions do not depend on Louvain or Ward, so switching the method only changes the colours.");
+}
+
+function setupEmbedControls() {
+  d3.selectAll("#an-layout button").on("click", function () {
+    if (state.analysis.layout === this.dataset.layout) return;
+    state.analysis.layout = this.dataset.layout;
+    updateNetwork();
+  });
+  d3.selectAll("#an-embed-alg button").on("click", function () {
+    if (state.analysis.embed === this.dataset.embed) return;
+    state.analysis.embed = this.dataset.embed;
+    updateNetwork();
+  });
 }
