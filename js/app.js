@@ -4036,48 +4036,31 @@ function computeDims() {
   return state.dims.result;
 }
 
-// Interpretive names for each end of an axis ([+ end, − end]), written by reading the
-// hashtags at the two ends. They are only valid for these exact settings
-// (method | works | focus | min works | 로맨스판타지 included); other settings show numbers only.
-const DIMS_AXIS_NAMES = {
-  "pca|all||3|false": [
-    ["가족·성장 힐링", "계략·코믹 빙의 로맨스"],
-    ["착각·첫사랑 연애", "궁정·앙숙 드라마"],
-    ["코믹·치유 톤", "남주 매력·설정 중심"],
-    ["복수·회귀 궁정극", "로코·티키타카"],
-    ["사이다 능력 여주", "다정·힐링 여주"]
-  ],
-  "ca|all||3|false": [
-    ["일상·성장 (현대·학원)", "궁정·계략 로맨스"],
-    ["궁정·앙숙 드라마", "착각·연하 연애"],
-    ["코믹 계약·현대", "시대극·정통 로맨스"],
-    ["악녀·회귀 복수", "연하·재회 판타지 연애"],
-    ["이세계·초월 설정", "감정 서사 (재회·짝사랑)"]
-  ],
-  "pca|focus|능력녀|3|false": [
-    ["가족·성장·복수 서사", "코믹·착각 로맨스"],
-    ["순정·운명 남주", "계약·로코"],
-    ["쿨한 궁정 걸크러쉬", "다정·착각 로코"],
-    ["앙숙·집착 로코", "순정·정략 궁정"],
-    ["사이다·계략·집착", "직진·힐링 운명"]
-  ],
-  "ca|focus|능력녀|3|false": [
-    ["연하·착각 연애", "가족·성장 힐링"],
-    ["궁정·시대극", "현대·코믹 계약"],
-    ["첫사랑·재회 운명", "학원·역하렘"],
-    ["학원·라이벌", "궁정·정략"],
-    ["차원이동·초월 판타지", "달달·치유 로맨스"]
-  ]
-};
+// Axis names come straight from the hashtags (no interpretation): for each end,
+// the most characteristic hashtag (furthest out) and the most inclusive one
+// (on the most works among the 8 furthest out at that end).
+const DIMS_POLE_TOP = 8;
 
-// [+ name, − name] for axis k under the current settings, or null.
-function dimsPoleNames(k) {
+function dimsPoleKeywords(k, sign) {
   const r = state.dims.result;
-  const names = r && DIMS_AXIS_NAMES[r.key];
-  return names && names[k] ? names[k] : null;
+  if (!r || !r.coords.length) return null;
+  const items = r.tags.map((t, i) => ({ t, v: r.coords[i][k] * sign, f: r.freq.get(t) }))
+    .filter((d) => d.v > 0).sort((a, b) => b.v - a.v).slice(0, DIMS_POLE_TOP);
+  if (!items.length) return null;
+  const characteristic = items[0];
+  const inclusive = items.slice(1).sort((a, b) => b.f - a.f || b.v - a.v)[0];
+  return { characteristic: characteristic.t, inclusive: inclusive ? inclusive.t : null };
 }
 
-// "PC2 (착각·첫사랑 연애 ↔ 궁정·앙숙 드라마)" when a name exists, else "PC2".
+// [+ name, − name] for axis k, e.g. ["착각물·첫사랑", "라이벌/앙숙·걸크러쉬"].
+function dimsPoleNames(k) {
+  const pos = dimsPoleKeywords(k, 1), neg = dimsPoleKeywords(k, -1);
+  if (!pos || !neg) return null;
+  const fmt = (x) => [x.characteristic, x.inclusive].filter(Boolean).join("·");
+  return [fmt(pos), fmt(neg)];
+}
+
+// "PC2 (착각물·첫사랑 ↔ 라이벌/앙숙·걸크러쉬)"
 function dimsAxisLabel(k, method = state.dims.method) {
   const n = dimsPoleNames(k);
   return n ? `${dimsAxisName(k, method)} (${n[0]} ↔ ${n[1]})` : dimsAxisName(k, method);
@@ -4425,24 +4408,28 @@ function renderDimsPanel() {
     const items = r.tags.map((t, i) => ({ t, v: r.coords[i][k], f: r.freq.get(t) })).filter((d) => dimsVisible(d.t));
     const pos = items.filter((d) => d.v > 0).sort((a, b) => b.v - a.v).slice(0, N_POLE);
     const neg = items.filter((d) => d.v < 0).sort((a, b) => a.v - b.v).slice(0, N_POLE);
-    const list = (arr) => arr.map((d) => {
+    const kp = dimsPoleKeywords(k, 1) || {}, kn = dimsPoleKeywords(k, -1) || {};
+    let kw = {};
+    const list = (arr, side) => (kw = side > 0 ? { c: kp.characteristic, i: kp.inclusive } : { c: kn.characteristic, i: kn.inclusive }, arr).map((d) => {
       const m = state.metaByTag.get(d.t);
       const col = state.dims.colorBy === "l2" && m?.layer2?.length ? layer2Color(m.layer2[0]) : categoryColor(m?.category);
-      return `<li data-tag="${escapeHtml(d.t)}"><span class="cat-dot" style="background:${col}"></span><span class="dm-pole-tag">${escapeHtml(d.t)}</span><span class="dm-pole-v">${fmtCoord(d.v)}</span></li>`;
+      const mark = d.t === kw.c ? '<span class="dm-kw" title="Most characteristic">●</span>' : d.t === kw.i ? '<span class="dm-kw" title="Most inclusive">◆</span>' : "";
+      return `<li data-tag="${escapeHtml(d.t)}"><span class="cat-dot" style="background:${col}"></span><span class="dm-pole-tag">${escapeHtml(d.t)}${mark}</span><span class="dm-pole-v">${fmtCoord(d.v)}</span></li>`;
     }).join("");
     const nm = dimsPoleNames(k);
     return `<div class="dm-pole-block">
       <h3>${dimsAxisName(k, r.method)} <span class="dm-pole-pct">${((r.explained[k] || 0) * 100).toFixed(1)}%</span>
         <span class="dm-pole-where">${k === state.dims.x ? "horizontal" : "vertical"}</span></h3>
       <div class="dm-pole-cols">
-        <div><div class="an-sub">+ end</div>${nm ? `<div class="dm-pole-name">${escapeHtml(nm[0])}</div>` : ""}<ol>${list(pos)}</ol></div>
-        <div><div class="an-sub">− end</div>${nm ? `<div class="dm-pole-name">${escapeHtml(nm[1])}</div>` : ""}<ol>${list(neg)}</ol></div>
+        <div><div class="an-sub">+ end</div>${nm ? `<div class="dm-pole-name">${escapeHtml(nm[0])}</div>` : ""}<ol>${list(pos, 1)}</ol></div>
+        <div><div class="an-sub">− end</div>${nm ? `<div class="dm-pole-name">${escapeHtml(nm[1])}</div>` : ""}<ol>${list(neg, -1)}</ol></div>
       </div></div>`;
   };
   const nHidden = r.tags.filter((t) => !dimsVisible(t)).length;
-  const namesNote = DIMS_AXIS_NAMES[r.key]
-    ? `<p class="small-note dm-names-note">The names of the axis ends (e.g. “${escapeHtml(DIMS_AXIS_NAMES[r.key][1][0])}”) are an interpretation, read from the hashtags at each end. They are written for these settings only; other settings show axis numbers only.</p>`
-    : `<p class="small-note dm-names-note">Axis names are written only for the default settings (hashtags on at least 3 works, 로맨스판타지 left out, all works or 능력녀 works). Read these axes from the hashtags at each end.</p>`;
+  const namesNote = `<p class="small-note dm-names-note"><strong>Axis names</strong> are two hashtags from each end, not an
+    interpretation: first the <strong>most characteristic</strong> one (furthest out, marked ●), then the
+    <strong>most inclusive</strong> one (on the most works among the ${DIMS_POLE_TOP} furthest out, marked ◆).
+    The first says what the end is about; the second how widely it reaches.</p>`;
   poles.html(namesNote + (nHidden ? `<p class="small-note dm-hidden-note">${nHidden} of ${r.tags.length} hashtags are hidden by the category checkboxes; the lists below skip them.</p>` : "") +
     block(state.dims.x) + block(state.dims.y));
   poles.selectAll("li").on("mouseenter", function () {
@@ -4464,7 +4451,7 @@ function downloadDimsCSV() {
     ["# sign rule", "each axis is flipped so that its most extreme hashtag is positive"],
     ["# coordinate", r.method === "pca" ? "correlation of the hashtag with the axis (loading × √eigenvalue)" : "principal coordinate"],
     ["# explained", ...r.explained.map((e, k) => `${axes[k]} ${(e * 100).toFixed(2)}%`)],
-    ...(DIMS_AXIS_NAMES[r.key] ? [["# axis names (interpretation: + end ↔ − end)", ...axes.map((a, k) => `${a}: ${DIMS_AXIS_NAMES[r.key][k][0]} ↔ ${DIMS_AXIS_NAMES[r.key][k][1]}`)]] : []),
+    ["# axis names (most characteristic·most inclusive hashtag at each end; + ↔ −)", ...axes.map((a, k) => { const n = dimsPoleNames(k); return n ? `${a}: ${n[0]} ↔ ${n[1]}` : a; })],
     [],
     ["hashtag", "layer1", "layer2", "works", ...axes]
   ];

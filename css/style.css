@@ -1607,3 +1607,4 @@ g.node.dendro-hl text { font-weight: 700; display: inline !important; }
 .an-embed-alg { margin-top: 6px; }
 .an-embed-alg button { font-size: 12px; padding: 5px 4px; }
 .embed-note { font-size: 12px; fill: #8a817c; }
+.dm-kw { margin-left: 4px; font-size: 10px; color: #8a817c; vertical-align: 1px; }
