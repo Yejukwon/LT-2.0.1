@@ -39,6 +39,9 @@ const state = {
     clusterCats: null, expanded: new Set(),
     // clustering method for ② Clusters: "louvain" or "ward"; k = Ward's number of clusters (null = match Louvain)
     algorithm: "louvain", k: null },
+  // Compare tab (hashtag lens): map colour and display-only category filters
+  // colorBy "l2" | "l1" | "combo" (which compare tags a hashtag goes with)
+  compareView: { colorBy: "l2", showL1: null, showL2: null, listVisible: true },
   // Dimensions tab (hashtag lens): hashtags placed on PCA / correspondence-analysis axes
   // method "pca" | "ca"; scope "all" | "focus"; x, y = axis indices (0 = first axis)
   dims: { method: "pca", scope: "all", focus: "능력녀", minWorks: 3, includeRomance: false, x: 0, y: 1, colorBy: "l2", result: null,
@@ -79,6 +82,7 @@ Promise.all([
     setupWorkLensControls();
     setupAnalysisControls();
     setupDimsControls();
+    setupCompareViewControls();
     setupEmbedControls();
     setupClosenessControls();
     setupMagnifier();
@@ -2734,11 +2738,13 @@ function drawNetwork(graph) {
   .force("charge", d3.forceManyBody().strength((d) => {
     if (graph.mode === "works") return d.type === "work" ? -75 : -450;
     if (workNet) return -250;
-    if (isCompare) return d.comparisonGroup === "anchor" ? -600 : -200;
+    if (isCompare) return d.comparisonGroup === "anchor" ? -600 : (graph.lens !== "work" && state.lens === "tag" ? -90 : -200);
     if (isClusters) return -260;
     return -380;
   }))
-  .force("collision", d3.forceCollide().radius((d) => nodeRadius(d) + (isCompare ? 9 : workNet ? 14 : 10)));
+  .force("collision", d3.forceCollide().radius((d) => nodeRadius(d) + (isCompare ? 7 : workNet ? 14 : 10)));
+  // Compare settles quickly and without wobble.
+  if (isCompare) simulation.velocityDecay(0.55).alphaDecay(0.045);
 
   // Keep every node inside the visible map area.
   simulation.force("bounds", () => {
@@ -2827,6 +2833,12 @@ function drawNetwork(graph) {
       if (isCompare) {
         const s = getLinkName(d.source);
         const t = getLinkName(d.target);
+        if (graph.lens !== "work" && state.lens === "tag") {
+          // calm grey lines; a faint tint of the compared tag only when colouring by combination
+          return state.compareView.colorBy === "combo"
+            ? d3.interpolateRgb(compareColor(activeCompareSet().has(s) ? s : t), "#b0aaa6")(0.6)
+            : "#b0aaa6";
+        }
         return d3.interpolateRgb(compareColor(activeCompareSet().has(s) ? s : t), "#9a9a9a")(0.45);
       }
       return "#999";
@@ -2837,12 +2849,13 @@ function drawNetwork(graph) {
         return getLinkName(d.source) === f || getLinkName(d.target) === f ? 0.22 : 0.05;
       }
       if (isClusters && !workNet) return Math.min(0.5, 0.06 + d.weight * 0.04);
+      if (isCompare && graph.lens !== "work" && state.lens === "tag") return 0.22;
       return isCompare ? 0.32 : workNet ? 0.4 : 0.45;
     })
     .attr("stroke-width", (d) => {
       if (graph.mode === "works") return 1.2;
       if (workNet) return 0.6 + d.weight * 7;
-      if (graph.mode === "comparison") return graph.lens === "work" ? 1 : 0.6 + Math.sqrt(d.weight) * 0.6;
+      if (graph.mode === "comparison") return graph.lens === "work" ? 1 : 0.5 + Math.sqrt(d.weight) * 0.35;
       return Math.sqrt(d.weight);
     })
     .on("click", function (event, d) {
@@ -2926,7 +2939,8 @@ function drawNetwork(graph) {
 
   if (graph.closeness) node.style("opacity", (d) => (d.closeness?.sparse ? 0.35 : 1));
 
-  if (graph.mode === "worknet" || !graph.mode) {
+  const tagCompare = isCompare && graph.lens !== "work" && state.lens === "tag";
+  if (graph.mode === "worknet" || !graph.mode || tagCompare) {
     node.append("g").attr("class", "node-pie");
     node.each(function (d) { renderNodePie(d3.select(this), d); });
   }
@@ -2939,12 +2953,15 @@ function drawNetwork(graph) {
     .attr("y", 4)
     .attr("font-size", (d) => {
       if (workNet) return "11px";
+      if (d.comparisonGroup && d.type !== "work" && state.lens === "tag" && !isCompareAnchor(d.id)) return "11px";
       if (d.type === "work" && !isCompareAnchor(d.id)) return "12px";
       return "13.5px";
     })
     .attr("font-weight", (d) => (graph.mode === "works" ? state.worksTags.has(d.id) : isCompareAnchor(d.id)) ? 700 : 400)
     .attr("fill", (d) => isCompareAnchor(d.id) ? "#111111" : "#333333");
   
+  if (tagCompare) applyCompareVisibility(node, link);
+
   // Draw positions, bent through the magnifier when it is on.
   const render = () => {
     const f = fisheyeFocus();
@@ -3090,6 +3107,10 @@ function nodeRadius(d) {
   // Work network: size by how many other works a work is linked to.
   if (d.degree != null) return 5 + Math.sqrt(d.degree) * 2.6;
   if (d.type === "work" && d.comparisonGroup !== "anchor") return 6.5;
+  // Hashtag Compare: compared tags large, everything else small (like Find works)
+  if (d.comparisonGroup && d.type !== "work" && state.lens === "tag") {
+    return d.comparisonGroup === "anchor" ? 16 : 3.5 + Math.sqrt(d.frequency || 1) * 1.25;
+  }
   return 6 + Math.sqrt(d.frequency || 1) * 2.6;
 }
 
@@ -3119,6 +3140,10 @@ function nodePieColors(d) {
   }
   if (g.mode === "dims") {
     return state.dims.colorBy === "l2" && d.layer2 && d.layer2.length > 1 ? d.layer2.map(layer2Color) : [];
+  }
+  if (g.mode === "comparison") {
+    return state.lens === "tag" && state.compareView.colorBy === "l2" && d.comparisonGroup !== "anchor" && d.layer2 && d.layer2.length > 1
+      ? d.layer2.map(layer2Color) : [];
   }
   if (usesLayerColors() && state.colorBy === "l2" && d.layer2 && d.layer2.length > 1) {
     return d.layer2.map(layer2Color);
@@ -3206,6 +3231,9 @@ function nodeColor(d) {
 
   if (graph && graph.mode === "comparison") {
     if (d.comparisonGroup === "anchor") return compareColor(d.id);
+    if (graph.lens !== "work" && state.lens === "tag" && state.compareView.colorBy !== "combo") {
+      return state.compareView.colorBy === "l2" && d.layer2 && d.layer2.length ? layer2Color(d.layer2[0]) : categoryColor(d.category);
+    }
     return compareSubsetColor(d.comparisonSubset, graph.compareTags.length);
   }
 
@@ -3543,8 +3571,11 @@ function getWorksForPair(tagA, tagB) {
 function compareSelectedTags() {
   const selectedTags = Array.from(state.compareTags);
   const results = d3.select("#compare-results");
+  const breakdown = d3.select("#compare-breakdown");
 
   if (selectedTags.length < 2) {
+    breakdown.html("");
+    d3.select("#compare-count").text("");
     results.html("Add two or more tags to compare their co-occurrence patterns.");
     return;
   }
@@ -3553,57 +3584,119 @@ function compareSelectedTags() {
   if (!graph || graph.mode !== "comparison") return;
 
   const total = selectedTags.length;
-  const rows = graph.nodes.filter((n) => n.comparisonGroup && n.comparisonGroup !== "anchor");
+  const all = graph.nodes.filter((n) => n.comparisonGroup && n.comparisonGroup !== "anchor");
+  const rows = all.filter((n) => compareTagVisible(n.id));
+  const nHidden = all.length - rows.length;
   const weightOf = (row, tag) => (row.comparisonWeights.find((w) => w.selected === tag) || {}).weight || 0;
-  const dot = (color) => `<span class="cmp-dot" style="background:${color}"></span>`;
-  const anchorChip = (tag) => `<span class="cmp-anchor">${dot(compareColor(tag))}${escapeHtml(tag)}</span>`;
-
-  const listRows = (items, tags, limit) => {
-    if (!items.length) return `<li class="small-note">None under the current filters</li>`;
-    const shown = items.slice(0, limit).map((row) => {
-      const values = tags.map((t) => `${escapeHtml(t)}: ${weightOf(row, t)}`).join(", ");
-      return `<li>${escapeHtml(row.id)} <span class="small-note">(${values})</span></li>`;
-    }).join("");
-    const more = items.length > limit ? `<li class="small-note">+ ${items.length - limit} more</li>` : "";
-    return shown + more;
-  };
-
-  const group = (title, color, items, tags, limit) => `
-    <details class="compare-group" ${items.length ? "open" : ""}>
-      <summary>${dot(color)}<span>${title}</span><span class="cmp-count">${items.length}</span></summary>
-      <ul>${listRows(items, tags, limit)}</ul>
-    </details>`;
-
   const byTotal = (a, b) => b.comparisonTotalWeight - a.comparisonTotalWeight;
 
-  // Intersection
-  const shared = rows.filter((r) => r.comparisonGroup === "all").sort(byTotal);
-  let html = `<div class="cmp-anchors">${selectedTags.map(anchorChip).join("")}</div>`;
-  html += `<h4 class="cmp-heading">Intersection</h4>`;
-  html += group(`Shared by all ${total}`, compareSubsetColor(selectedTags, total), shared, selectedTags, 10);
-
-  // Partial intersections (only when 3+ tags)
+  // Groups: intersection, partial intersections, differences
+  const groups = [];
+  groups.push({ section: "Intersection", title: `Shared by all ${total}`, subset: selectedTags,
+    items: rows.filter((r) => r.comparisonGroup === "all").sort(byTotal) });
   if (total >= 3) {
-    const partial = d3.groups(rows.filter((r) => r.comparisonGroup === "some"), (r) => r.comparisonKey)
-      .map(([, items]) => ({ subset: items[0].comparisonSubset, items: items.sort(byTotal) }))
-      .sort((a, b) => b.subset.length - a.subset.length || b.items.length - a.items.length);
-    html += `<h4 class="cmp-heading">Partial intersections</h4>`;
-    html += partial.length
-      ? partial.map((g) => group(escapeHtml(g.subset.join(" ∩ ")) + " only", compareSubsetColor(g.subset, total), g.items, g.subset, 6)).join("")
-      : `<p class="small-note">No tags are shared by only some of the selected tags.</p>`;
+    d3.groups(rows.filter((r) => r.comparisonGroup === "some"), (r) => r.comparisonKey)
+      .map(([, items]) => ({ section: "Partial intersections", title: items[0].comparisonSubset.join(" ∩ ") + " only",
+        subset: items[0].comparisonSubset, items: items.sort(byTotal) }))
+      .sort((a, b) => b.subset.length - a.subset.length || b.items.length - a.items.length)
+      .forEach((g) => groups.push(g));
+  }
+  for (const tag of selectedTags) {
+    groups.push({ section: "Differences", title: `Only ${tag}`, subset: [tag],
+      items: rows.filter((r) => r.comparisonGroup === "only" && r.comparisonSubset[0] === tag)
+        .sort((a, b) => weightOf(b, tag) - weightOf(a, tag)) });
   }
 
-  // Differences
-  html += `<h4 class="cmp-heading">Differences</h4>`;
-  html += selectedTags.map((tag) => {
-    const items = rows
-      .filter((r) => r.comparisonGroup === "only" && r.comparisonSubset[0] === tag)
-      .sort((a, b) => weightOf(b, tag) - weightOf(a, tag));
-    return group(`Only ${escapeHtml(tag)}`, compareSubsetColor([tag], total), items, [tag], 8);
-  }).join("");
+  // Summary rows, like the Find works breakdown
+  d3.select("#compare-count").text(
+    `${rows.length} hashtag(s) appear with at least one of the ${total} selected tags` +
+    (nHidden ? ` · ${nHidden} hidden by category` : ""));
+  const legend = `<div class="cmp-anchors">${selectedTags.map((t) =>
+    `<span class="cmp-anchor"><span class="cmp-dot" style="background:${compareColor(t)}"></span>${escapeHtml(t)}</span>`).join("")}</div>`;
+  breakdown.html(legend + groups.map((g) => `
+    <div class="works-breakdown-row cmp-breakdown-row" style="border-left-color:${compareSubsetColor(g.subset, total)}">
+      ${escapeHtml(g.title)}: ${g.items.length} hashtag(s)</div>`).join(""));
 
+  // The list: one row per hashtag, grouped; click to find it on the map
+  const dot = (color) => `<span class="cmp-dot" style="background:${color}"></span>`;
+  let html = "";
+  let section = null;
+  for (const g of groups) {
+    if (g.section !== section) { html += `<h4 class="cmp-heading">${g.section}</h4>`; section = g.section; }
+    html += `<details class="compare-group" ${g.items.length && g.section !== "Partial intersections" ? "open" : ""}>
+      <summary>${dot(compareSubsetColor(g.subset, total))}<span>${escapeHtml(g.title)}</span><span class="cmp-count">${g.items.length}</span></summary>
+      ${g.items.length ? g.items.map((row) => {
+        const values = g.subset.map((t) => `${escapeHtml(t)} ${weightOf(row, t)}`).join(" · ");
+        return `<button type="button" class="work-list-item cmp-row" data-tag="${escapeHtml(row.id)}">
+          <span class="cmp-row-tag">${escapeHtml(row.id)}</span><span class="cmp-row-w">${values}</span></button>`;
+      }).join("") : `<p class="small-note cmp-none">None</p>`}
+    </details>`;
+  }
   results.html(html);
+  results.selectAll("button.cmp-row")
+    .on("mouseenter", function () { highlightCompareNode(this.dataset.tag); })
+    .on("mouseleave", () => highlightCompareNode(null))
+    .on("click", function () {
+      const n = (state.currentGraph?.nodes || []).find((x) => x.id === this.dataset.tag);
+      if (n) showNodeInspector(n);
+    });
 }
+
+function highlightCompareNode(tag) {
+  graphLayer.selectAll("g.node").classed("cmp-hl", (d) => tag != null && d.id === tag)
+    .filter((d) => tag != null && d.id === tag).raise();
+}
+
+function compareTagVisible(tag) {
+  if (state.compareTags.has(tag)) return true; // the compared tags are always shown
+  return layerVisible(tag, state.compareView);
+}
+
+function applyCompareVisibility(nodeSel, linkSel) {
+  const nodes = nodeSel || graphLayer.selectAll("g.node");
+  const links = linkSel || graphLayer.selectAll("line.link");
+  nodes.style("display", (d) => (compareTagVisible(d.id) ? null : "none"));
+  links.style("display", (d) => (compareTagVisible(getLinkName(d.source)) && compareTagVisible(getLinkName(d.target)) ? null : "none"));
+  // region labels count only the hashtags still shown
+  const total = (state.currentGraph?.compareTags || []).length;
+  graphLayer.selectAll("text.compare-region-label").each(function ([, members]) {
+    const n = members.filter((m) => compareTagVisible(m.id)).length;
+    d3.select(this).style("display", n ? null : "none")
+      .text(`${compareSubsetLabel(members[0].comparisonSubset, total)} · ${n}`);
+  });
+}
+
+function setupCompareViewControls() {
+  if (d3.select("#cmp-l1").empty()) return;
+  const onChange = () => { applyCompareVisibility(); compareSelectedTags(); };
+  buildLayerCheckboxes("#cmp-l1", "#cmp-l2", state.compareView, onChange);
+  d3.select("#cmp-cats-all").on("click", () => {
+    state.compareView.showL1 = null; state.compareView.showL2 = null;
+    buildLayerCheckboxes("#cmp-l1", "#cmp-l2", state.compareView, onChange);
+    onChange();
+  });
+  d3.selectAll('input[name="cmp-color"]').on("change", function () {
+    state.compareView.colorBy = this.value;
+    // recolour in place: nodes, pies, lines
+    graphLayer.selectAll("g.node").each(function (d) {
+      const sel = d3.select(this);
+      sel.select("circle").attr("fill", nodeColor(d));
+      if (!sel.select("g.node-pie").empty()) renderNodePie(sel, d);
+    });
+    graphLayer.selectAll("line.link").attr("stroke", (d) => {
+      if (state.compareView.colorBy !== "combo") return "#b0aaa6";
+      const s = getLinkName(d.source), t = getLinkName(d.target);
+      return d3.interpolateRgb(compareColor(activeCompareSet().has(s) ? s : t), "#b0aaa6")(0.6);
+    });
+    d3.select("#cmp-legend-note").classed("hidden", state.compareView.colorBy !== "combo");
+  });
+  d3.select("#toggle-compare-list").on("click", () => {
+    state.compareView.listVisible = !state.compareView.listVisible;
+    d3.select("#compare-results").classed("hidden", !state.compareView.listVisible);
+    d3.select("#toggle-compare-list").text(state.compareView.listVisible ? "Hide list" : "Show list");
+  });
+}
+
 function renderComparisonBars(weights) {
   const maxWeight = d3.max(weights, (d) => d.weight) || 1;
 
@@ -4098,24 +4191,21 @@ function buildDimsGraph() {
 // A hashtag is shown when its layer-1 category is on and at least one of its
 // layer-2 categories is on (same rule as the Network filters).
 function dimsVisible(tag) {
-  const m = state.metaByTag.get(tag) || {};
-  const { showL1, showL2 } = state.dims;
-  if (showL1 && !showL1.has(m.category || "unknown")) return false;
-  if (showL2 && (m.layer2 || []).length && !m.layer2.some((c) => showL2.has(c))) return false;
-  return true;
+  return layerVisible(tag, state.dims);
 }
 
 function applyDimsVisibility() {
   graphLayer.selectAll("g.dm-node").style("display", (d) => (dimsVisible(d.id) ? null : "none"));
 }
 
-function renderDimsCategoryFilters() {
+// Layer-1 / layer-2 show/hide checkboxes (display only). `view` holds showL1 / showL2 sets.
+function buildLayerCheckboxes(l1Host, l2Host, view, onChange) {
   const present1 = new Set(state.metadata.map((m) => m.category));
   const l1 = [...L1_ORDER.filter((c) => present1.has(c)), ...Array.from(present1).filter((c) => !L1_ORDER.includes(c)).sort()];
   const present2 = new Set(state.metadata.flatMap((m) => m.layer2));
   const l2 = [...L2_ORDER.filter((c) => present2.has(c)), ...Array.from(present2).filter((c) => !L2_ORDER.includes(c)).sort()];
-  if (!state.dims.showL1) state.dims.showL1 = new Set(l1);
-  if (!state.dims.showL2) state.dims.showL2 = new Set(l2);
+  if (!view.showL1) view.showL1 = new Set(l1);
+  if (!view.showL2) view.showL2 = new Set(l2);
   const build = (host, items, set, color, label) => {
     const rows = d3.select(host).selectAll("label").data(items).join("label").attr("class", "checkbox-row");
     rows.each(function (c) {
@@ -4123,15 +4213,26 @@ function renderDimsCategoryFilters() {
       row.html("");
       row.append("input").attr("type", "checkbox").property("checked", set.has(c)).on("change", function () {
         if (this.checked) set.add(c); else set.delete(c);
-        applyDimsVisibility();
-        renderDimsPanel();
+        onChange();
       });
       row.append("span").attr("class", "cat-dot").style("background", color(c));
       row.append("span").text(label(c));
     });
   };
-  build("#dm-l1", l1, state.dims.showL1, categoryColor, formatCategory);
-  build("#dm-l2", l2, state.dims.showL2, layer2Color, (c) => c);
+  build(l1Host, l1, view.showL1, categoryColor, formatCategory);
+  build(l2Host, l2, view.showL2, layer2Color, (c) => c);
+}
+
+// Same rule as the Network filters: layer-1 category on and at least one layer-2 category on.
+function layerVisible(tag, view) {
+  const m = state.metaByTag.get(tag) || {};
+  if (view.showL1 && !view.showL1.has(m.category || "unknown")) return false;
+  if (view.showL2 && (m.layer2 || []).length && !m.layer2.some((c) => view.showL2.has(c))) return false;
+  return true;
+}
+
+function renderDimsCategoryFilters() {
+  buildLayerCheckboxes("#dm-l1", "#dm-l2", state.dims, () => { applyDimsVisibility(); renderDimsPanel(); });
 }
 
 function dimsNodeColor(d) {

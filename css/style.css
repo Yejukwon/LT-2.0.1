@@ -1609,3 +1609,19 @@ g.node.dendro-hl text { font-weight: 700; display: inline !important; }
 .embed-note { font-size: 12px; fill: #8a817c; }
 .dm-kw { margin-left: 4px; font-size: 10px; color: #8a817c; vertical-align: 1px; }
 .embed-ties line.embed-tie { stroke: #3d3633; stroke-opacity: 0.45; pointer-events: none; }
+/* ---- Compare panel, Find-works style ---- */
+#compare-panel label[for] { display:block; margin:9px 0 5px; }
+#compare-panel select { width:100%; min-width:0; }
+#compare-panel .works-panel-heading { margin-bottom: 8px; }
+#compare-panel .works-panel-heading button { width: auto; }
+#compare-panel .color-by-row label { display:block; margin: 3px 0; }
+#compare-results.hidden { display:none; }
+#compare-results { max-height: 420px; overflow-y: auto; }
+.cmp-breakdown-row { border-left-width: 4px; }
+#compare-results .compare-group > summary { padding: 7px 4px; border-bottom: 1px solid #eee; }
+.cmp-row { display:flex; gap:8px; align-items:baseline; padding:7px 7px 7px 24px; }
+.cmp-row-tag { flex: 0 0 auto; font-weight: 600; }
+.cmp-row-w { flex: 1; text-align:right; color:#8a817c; font-size:11px; }
+.cmp-none { margin: 4px 0 6px 24px; }
+g.node.cmp-hl circle { stroke: #111 !important; stroke-width: 3px !important; }
+g.node.cmp-hl text { font-weight: 700; font-size: 13px; }

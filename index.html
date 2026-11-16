@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Romance Fantasy Hashtag Network</title>
-  <link rel="stylesheet" href="css/style.css?v=26">
+  <link rel="stylesheet" href="css/style.css?v=27">
 </head>
 
 <body>
@@ -46,26 +46,44 @@
       </section>
 
       <!-- Compare mode -->
-      <section class="panel-section" data-modes="tag:comparison">
-        <h2>Compare Tags</h2>
+      <section class="panel-section" id="compare-panel" data-modes="tag:comparison">
+        <div class="works-panel-heading">
+          <h2>Compare Tags</h2>
+          <button id="toggle-compare-list" type="button">Hide list</button>
+        </div>
         <p id="compare-filter-note" class="small-note filter-note hidden"></p>
-
-        <label>
-          Category
-          <select id="compare-category"></select>
-        </label>
-
-        <label>Tag</label>
+        <label for="compare-category">Category</label>
+        <select id="compare-category"></select>
+        <label for="compare-tag">Tag</label>
         <div class="works-add-row">
           <select id="compare-tag"></select>
           <button id="add-compare-tag" type="button">+ Add tag</button>
         </div>
-
         <div id="selected-compare-tags" class="tag-chip-area">
           No comparison tags selected.
         </div>
         <button id="clear-compare-tags" type="button" class="secondary-button">Clear comparison</button>
 
+        <div class="an-field-label">Colour hashtags by</div>
+        <div class="color-by-row" role="radiogroup" aria-label="Colour compare map by">
+          <label><input type="radio" name="cmp-color" value="l2" checked> Layer 2 (split when a tag has two)</label>
+          <label><input type="radio" name="cmp-color" value="l1"> Layer 1</label>
+          <label><input type="radio" name="cmp-color" value="combo"> Combination (which selected tags it goes with)</label>
+        </div>
+        <p id="cmp-legend-note" class="small-note hidden">Combination colours match the dots in the list below:
+          one selected tag = its colour, all of them = dark, some of them = a blend.</p>
+        <details class="dm-cats">
+          <summary>Show categories</summary>
+          <p class="small-note">Display only: hidden hashtags drop off the map and the list, the selected tags always stay.</p>
+          <div class="an-sub">Layer 1 (who / what)</div>
+          <div id="cmp-l1" class="checkbox-group"></div>
+          <div class="an-sub">Layer 2 (meaning)</div>
+          <div id="cmp-l2" class="checkbox-group"></div>
+          <button id="cmp-cats-all" type="button" class="secondary-button">Show all</button>
+        </details>
+
+        <p id="compare-count" class="small-note" aria-live="polite"></p>
+        <div id="compare-breakdown" class="works-breakdown"></div>
         <div id="compare-results">
           Add two or more tags to compare their co-occurrence patterns.
         </div>
@@ -517,6 +535,6 @@
 </div>
   
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-  <script src="js/app.js?v=26"></script>
+  <script src="js/app.js?v=27"></script>
 </body>
 </html>
