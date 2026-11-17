@@ -34,7 +34,7 @@ const state = {
   compareWorks: new Set(),
   // Analysis tab (hashtag lens)
   // hidden: hashtags left out of both ① and ② (로맨스판타지 by default)
-  analysis: { spot: null, hoverCluster: null, layout: "embed", embed: "tsne", embedCache: null, focus: "능력녀", method: "works", jaccard: 0.2, hidden: new Set(["로맨스판타지"]), result: null, sort: "together",
+  analysis: { layout: "embed", embed: "tsne", embedCache: null, focus: "능력녀", method: "works", jaccard: 0.2, hidden: new Set(["로맨스판타지"]), result: null, sort: "together",
     runSeed: null, nextSeed: 11, align: false, tableCats: null,
     clusterCats: null, expanded: new Set(),
     // clustering method for ② Clusters: "louvain" or "ward"; k = Ward's number of clusters (null = match Louvain)
@@ -596,7 +596,7 @@ const MODE_HELP = {
   "tag:full": "Explore the whole hashtag network. Use the filters to hide tags or thin out weak links.",
   "tag:comparison": "Pick two or more hashtags to see which tags sit near each one, and which they share.",
   "tag:works": "Pick hashtags to list and map the works that carry them.",
-  "tag:analysis": "Pick a focus hashtag, then group works or hashtags into clusters with Louvain (network) or Ward (hierarchical). Hover a cluster in the legend on the map to light it up, click to keep it; hover a dot to see its closest items.",
+  "tag:analysis": "Pick a focus hashtag, then group works or hashtags into clusters with Louvain (network) or Ward (hierarchical). On the embedding map, hover a dot to see its most similar items.",
   "tag:dimensions": "Each dot is a hashtag. Hashtags that tend to appear on the same works sit on the same side of an axis; the axes are found by standardized PCA or correspondence analysis. Hover for details, click for all five coordinates.",
   "work:full": "Each node is a work. Works are linked when their hashtags overlap, and more similar works sit closer together; bigger nodes are linked to more works. Hover for the full title, click for details.",
   "work:comparison": "Pick two or more works to see which hashtags they share and which belong to only one of them."
@@ -1792,7 +1792,6 @@ function refreshAnalysisInPlace() {
     for (const n of currentSim.nodes()) n.cluster = res.clusterOf.get(n.id);
     for (const n of g.nodes) n.cluster = res.clusterOf.get(n.id);
     graphLayer.selectAll("g.node").select("circle")
-      .transition().duration(550)
       .attr("fill", (d) => nodeColor(d))
       .attr("stroke", (d) => nodeStroke(d));
     // re-read the cluster targets and let nodes drift toward them
@@ -2107,10 +2106,6 @@ function renderAnalysisPanel() {
       : `<p class="small-note">${res.unlinked.length} ${unitPlural} have no links at this setting and are left out of the clusters (white on the map).</p>`)
     : "";
   d3.select("#an-clusters").html(cards + unlinked);
-  d3.select("#an-clusters").selectAll("details.an-cluster")
-    .on("mouseenter", function () { state.analysis.hoverCluster = +this.dataset.c; applyClusterSpotlight(); })
-    .on("mouseleave", () => { state.analysis.hoverCluster = null; applyClusterSpotlight(); });
-  renderClusterLegend(res);
   d3.select("#an-clusters").selectAll("button.an-work").on("click", function () { openWorkCard(this.dataset.id); });
   d3.select("#an-clusters").selectAll("button.an-more").on("click", function () {
     const i = +this.dataset.i;
@@ -2700,10 +2695,7 @@ function drawNetwork(graph) {
     });
 }
 
-  // remember where things were, so a new layout of the same items can glide from there
-  const prevPositions = currentSim ? new Map(currentSim.nodes().map((n) => [n.id, { x: n.x, y: n.y }])) : null;
   if (glideTimer) { glideTimer.stop(); glideTimer = null; }
-  d3.select("#cluster-legend").classed("hidden", true);
   if (currentSim) currentSim.stop();
   currentSim = null;
   if (graph.mode === "dims") { drawDimensions(graph, width, height); return; }
@@ -2942,9 +2934,9 @@ function drawNetwork(graph) {
     showNodeTooltip(event, d);
   })
   .on("mouseenter.analysis", function (event, d) {
-    if (isClusters) showClusterNeighbours(d, embedMode);
+    if (embedMode) showClusterNeighbours(d, true);
   })
-  .on("mouseleave.analysis", () => { if (isClusters) clearClusterNeighbours(); })
+  .on("mouseleave.analysis", () => { if (embedMode) clearClusterNeighbours(); })
   .on("click", function (event, d) {
     event.stopPropagation();
     // Wait briefly so a double-click (pin toggle) does not also count as a click.
@@ -3021,35 +3013,35 @@ function drawNetwork(graph) {
   currentRender = render;
   currentSim = simulation;
 
-  // Analysis: glide from the previous layout instead of jumping.
-  if (isClusters && prevPositions) {
-    const known = nodes.filter((n) => prevPositions.has(n.id) && n.fx == null);
-    if (known.length >= nodes.length * 0.5) {
-      if (embedMode) {
-        simulation.stop();
-        const start = nodes.map((n) => {
-          const p = prevPositions.get(n.id);
-          return { n, x0: p ? p.x : n.ex, y0: p ? p.y : n.ey };
-        });
-        for (const st of start) { st.n.x = st.x0; st.n.y = st.y0; }
-        render();
-        glideTimer = d3.timer((elapsed) => {
-          const k = d3.easeCubicInOut(Math.min(1, elapsed / 900));
-          for (const st of start) {
-            st.n.x = st.x0 + (st.n.ex - st.x0) * k;
-            st.n.y = st.y0 + (st.n.ey - st.y0) * k;
-          }
-          render();
-          if (k >= 1) {
-            glideTimer.stop();
-            glideTimer = null;
-            if (currentSim === simulation) simulation.alpha(0.15).restart();
-          }
-        });
-      } else {
-        for (const n of known) { const p = prevPositions.get(n.id); n.x = p.x; n.y = p.y; }
-      }
+  // Embedding map: dots start a little spread out and are drawn in toward their
+  // cluster, settling exactly on their computed places.
+  if (embedMode) {
+    simulation.stop();
+    const centre = new Map();
+    for (const [c, members] of d3.group(nodes, (n) => n.cluster)) {
+      centre.set(c, { x: d3.mean(members, (n) => n.ex), y: d3.mean(members, (n) => n.ey) });
     }
+    const mid = { x: d3.mean(nodes, (n) => n.ex), y: d3.mean(nodes, (n) => n.ey) };
+    const start = nodes.map((n, i) => {
+      const c = n.cluster != null && n.cluster >= 0 ? centre.get(n.cluster) : mid;
+      const wobble = ((i * 37) % 11) - 5; // small fixed offset so the motion is not perfectly radial
+      return { n, x0: n.ex + (n.ex - c.x) * 0.35 + wobble * 3, y0: n.ey + (n.ey - c.y) * 0.35 - wobble * 2 };
+    });
+    for (const st of start) { st.n.x = st.x0; st.n.y = st.y0; }
+    render();
+    glideTimer = d3.timer((elapsed) => {
+      const k = d3.easeCubicOut(Math.min(1, elapsed / 1300));
+      for (const st of start) {
+        st.n.x = st.x0 + (st.n.ex - st.x0) * k;
+        st.n.y = st.y0 + (st.n.ey - st.y0) * k;
+      }
+      render();
+      if (k >= 1) {
+        glideTimer.stop();
+        glideTimer = null;
+        if (currentSim === simulation) simulation.alpha(0.1).restart();
+      }
+    });
   }
 
   simulation.on("tick", () => {
@@ -4904,50 +4896,6 @@ function embedDrag(simulation) {
 // ---- Analysis: interaction (cluster spotlight, legend on the map, neighbours on hover) ----
 // ======================================================================
 let glideTimer = null;
-
-function applyClusterSpotlight() {
-  const a = state.analysis;
-  const c = a.hoverCluster != null ? a.hoverCluster : a.spot;
-  const on = state.lens === "tag" && state.viewMode === "analysis" && c != null;
-  graphLayer.selectAll("g.node").classed("an-dim", (d) => on && d.cluster !== c);
-  graphLayer.selectAll("line.link").classed("an-dim", (d) => on && !(d.source.cluster === c && d.target.cluster === c));
-  d3.selectAll("#cluster-legend .cl-chip")
-    .classed("active", function () { return +this.dataset.c === a.spot; })
-    .classed("faded", function () { return on && +this.dataset.c !== c; });
-  d3.selectAll("#an-clusters details.an-cluster").classed("spot", function () { return on && +this.dataset.c === c; });
-  d3.select("#cluster-legend .cl-clear").classed("hidden", a.spot == null);
-}
-
-function renderClusterLegend(res) {
-  let box = d3.select("#cluster-legend");
-  if (box.empty()) {
-    box = d3.select("#network-area").append("div").attr("id", "cluster-legend").attr("class", "cluster-legend");
-  }
-  if (!res || !res.clusters.length) { box.classed("hidden", true); return; }
-  if (state.analysis.spot != null && state.analysis.spot >= res.clusters.length) state.analysis.spot = null;
-  const unit = res.kind === "work" ? "works" : "tags";
-  const chips = res.clusters.map((c) => {
-    const tops = c.topTags.filter((t) => t.tag !== res.focus).slice(0, 2).map((t) => t.tag).join(" · ");
-    return `<button type="button" class="cl-chip" data-c="${c.index}">
-      <span class="cmp-dot" style="background:${clusterColor(c.index)}"></span>
-      <span class="cl-chip-name">${c.index + 1}</span><span class="cl-chip-n">${c.members.length}</span>
-      <span class="cl-chip-tags">${escapeHtml(tops)}</span></button>`;
-  }).join("");
-  box.classed("hidden", false).html(`
-    <div class="cl-legend-head">Clusters <span>(${unit})</span><button type="button" class="cl-clear hidden">Show all</button></div>
-    ${chips}
-    <div class="cl-legend-hint">Hover a cluster to light it up · click to keep it · hover a dot to see its closest ${unit}</div>`);
-  box.selectAll(".cl-chip")
-    .on("mouseenter", function () { state.analysis.hoverCluster = +this.dataset.c; applyClusterSpotlight(); })
-    .on("mouseleave", () => { state.analysis.hoverCluster = null; applyClusterSpotlight(); })
-    .on("click", function () {
-      const c = +this.dataset.c;
-      state.analysis.spot = state.analysis.spot === c ? null : c;
-      applyClusterSpotlight();
-    });
-  box.select(".cl-clear").on("click", () => { state.analysis.spot = null; applyClusterSpotlight(); });
-  applyClusterSpotlight();
-}
 
 // Hovering a dot: its closest items stay bright, the rest fade.
 // Embedding map: lines to its most similar items; network: its own links.
