@@ -1625,3 +1625,27 @@ g.node.dendro-hl text { font-weight: 700; display: inline !important; }
 .cmp-none { margin: 4px 0 6px 24px; }
 g.node.cmp-hl circle { stroke: #111 !important; stroke-width: 3px !important; }
 g.node.cmp-hl text { font-weight: 700; font-size: 13px; }
+/* ---- Analysis interaction ---- */
+g.node.an-dim, line.link.an-dim { opacity: 0.1; transition: opacity 0.25s; }
+g.node.an-nb-dim { opacity: 0.18; }
+line.link.an-nb-dim { opacity: 0.04; }
+line.link.an-nb-on { stroke: #3d3633 !important; stroke-opacity: 0.6 !important; }
+g.node { transition: opacity 0.2s; }
+.cluster-legend { position: absolute; left: 14px; top: 14px; z-index: 5; max-width: 300px; max-height: calc(100% - 90px); overflow-y: auto;
+  background: rgba(255,255,255,0.92); border: 1px solid #e6e1dd; border-radius: 10px; padding: 8px 8px 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+.cluster-legend.hidden { display: none; }
+.cl-legend-head { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 12.5px; margin: 0 2px 5px; }
+.cl-legend-head span { font-weight: 400; color: #8a817c; }
+.cl-clear { margin-left: auto; width: auto; font-size: 11px; padding: 2px 8px; border: 1px solid #d6cfcb; border-radius: 10px; background: #fff; cursor: pointer; }
+.cl-clear.hidden { display: none; }
+.cl-chip { display: grid; grid-template-columns: 12px 16px 26px 1fr; align-items: center; gap: 4px; width: 100%; padding: 4px 5px; border: 1px solid transparent;
+  border-radius: 7px; background: transparent; font-size: 12px; text-align: left; cursor: pointer; color: #2b2624; }
+.cl-chip:hover { background: #f5f0ec; }
+.cl-chip.active { border-color: #2b2624; background: #f5f0ec; }
+.cl-chip.faded { opacity: 0.4; }
+.cl-chip-name { font-weight: 700; }
+.cl-chip-n { color: #8a817c; font-size: 11px; }
+.cl-chip-tags { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #5d5551; }
+.cl-legend-hint { font-size: 10.5px; color: #8a817c; margin: 5px 2px 0; line-height: 1.35; }
+#an-clusters details.an-cluster.spot { background: #f5f0ec; border-radius: 6px; }
+g.node.an-nb-on { opacity: 1 !important; }

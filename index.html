@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Romance Fantasy Hashtag Network</title>
-  <link rel="stylesheet" href="css/style.css?v=27">
+  <link rel="stylesheet" href="css/style.css?v=28">
 </head>
 
 <body>
@@ -191,6 +191,37 @@
         <div id="cl-table"></div>
       </section>
 
+      <!-- Hashtags > Network: hashtags paired with the focus tag -->
+      <section class="panel-section" data-modes="tag:full">
+        <div class="an-heading">
+          <h2>Paired Hashtags</h2>
+          <button id="an-download-table" type="button" class="an-download">CSV</button>
+        </div>
+        <p id="pt-focus" class="small-note an-summary"></p>
+        <p class="small-note">Every hashtag that appears on the same work as the focus tag above.
+          <strong>Together</strong> = works with both.
+          <strong>% of focus</strong> = share of the focus tag's works that also have it.
+          <strong>% of tag</strong> = share of that hashtag's own works that also have the focus tag.
+          <strong>Closeness</strong> = the ratio used above (×1 = no more common with the focus than without).
+          Click a column to sort; hover a row to find the hashtag on the map. Hidden tags (Filters) are left out.</p>
+        <div id="an-table-cats" class="an-table-cats" aria-label="Show categories"></div>
+        <p id="an-table-shown" class="small-note"></p>
+        <div class="an-table-wrap">
+          <table class="an-table">
+            <thead id="an-table-head">
+              <tr>
+                <th>Hashtag</th>
+                <th data-sort="together" class="num">Together</th>
+                <th data-sort="ofFocus" class="num">% of focus</th>
+                <th data-sort="ofTag" class="num">% of tag</th>
+                <th data-sort="rr" class="num">Closeness</th>
+              </tr>
+            </thead>
+            <tbody id="an-table-body"></tbody>
+          </table>
+        </div>
+      </section>
+
       <!-- Hashtag lens: Analysis -->
       <section class="panel-section" data-modes="tag:analysis">
         <h2>Focus Hashtag</h2>
@@ -208,7 +239,7 @@
 
         <div class="filter-block">
           <h3>Hide Hashtags</h3>
-          <p class="small-note">Hidden hashtags are left out of both ① and ② (the table and the clusters).
+          <p class="small-note">Hidden hashtags are left out of the clusters.
             로맨스판타지 is hidden by default because it is on almost every work.</p>
           <label>
             Category
@@ -226,34 +257,7 @@
 
       <section class="panel-section" data-modes="tag:analysis">
         <div class="an-heading">
-          <h2>① Paired Hashtags</h2>
-          <button id="an-download-table" type="button" class="an-download">CSV</button>
-        </div>
-        <p class="small-note">How often each hashtag appears on the same work as the focus tag.
-          <strong>Together</strong> = number of works with both.
-          <strong>% of focus</strong> = share of the focus tag's works that also have it.
-          <strong>% of tag</strong> = share of that hashtag's own works that also have the focus tag
-          (high means it is almost always paired with the focus tag). Click a column to sort.</p>
-        <div id="an-table-cats" class="an-table-cats" aria-label="Show categories"></div>
-        <p id="an-table-shown" class="small-note"></p>
-        <div class="an-table-wrap">
-          <table class="an-table">
-            <thead id="an-table-head">
-              <tr>
-                <th>Hashtag</th>
-                <th data-sort="together" class="num">Together</th>
-                <th data-sort="ofFocus" class="num">% of focus</th>
-                <th data-sort="ofTag" class="num">% of tag</th>
-              </tr>
-            </thead>
-            <tbody id="an-table-body"></tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="panel-section" data-modes="tag:analysis">
-        <div class="an-heading">
-          <h2>② Clusters</h2>
+          <h2>Clusters</h2>
           <button id="an-download-clusters" type="button" class="an-download">CSV</button>
         </div>
         <div class="an-field-label">Method</div>
@@ -518,7 +522,7 @@
       <div>
         <h3>Analysis</h3>
         <p>
-          Pick any hashtag as the focus. ① lists the hashtags it is paired with; ② groups works
+          Pick any hashtag as the focus. Network → Paired Hashtags lists the hashtags it is paired with; Analysis groups works
           or hashtags into clusters with Louvain or Ward and compares the two. Both can be downloaded as CSV.
         </p>
       </div>
@@ -535,6 +539,6 @@
 </div>
   
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-  <script src="js/app.js?v=27"></script>
+  <script src="js/app.js?v=28"></script>
 </body>
 </html>

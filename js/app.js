@@ -34,7 +34,7 @@ const state = {
   compareWorks: new Set(),
   // Analysis tab (hashtag lens)
   // hidden: hashtags left out of both ① and ② (로맨스판타지 by default)
-  analysis: { layout: "embed", embed: "tsne", embedCache: null, focus: "능력녀", method: "works", jaccard: 0.2, hidden: new Set(["로맨스판타지"]), result: null, sort: "together",
+  analysis: { spot: null, hoverCluster: null, layout: "embed", embed: "tsne", embedCache: null, focus: "능력녀", method: "works", jaccard: 0.2, hidden: new Set(["로맨스판타지"]), result: null, sort: "together",
     runSeed: null, nextSeed: 11, align: false, tableCats: null,
     clusterCats: null, expanded: new Set(),
     // clustering method for ② Clusters: "louvain" or "ward"; k = Ward's number of clusters (null = match Louvain)
@@ -541,7 +541,7 @@ function updateNetwork() {
     if (mode === "comparison") compareSelectedTags();
     if (mode === "analysis") { renderAnalysisPanel(); renderEmbedControls(); }
     if (mode === "dimensions") renderDimsPanel();
-    if (mode === "full") renderClosenessPanel();
+    if (mode === "full") { renderClosenessPanel(); renderCooccurrenceTable(); }
   } else {
     renderHighlightChips();
     renderCompareWorksChips();
@@ -596,7 +596,7 @@ const MODE_HELP = {
   "tag:full": "Explore the whole hashtag network. Use the filters to hide tags or thin out weak links.",
   "tag:comparison": "Pick two or more hashtags to see which tags sit near each one, and which they share.",
   "tag:works": "Pick hashtags to list and map the works that carry them.",
-  "tag:analysis": "Pick a focus hashtag. ① shows which hashtags it is paired with; ② groups works or hashtags into clusters with Louvain (network) or Ward (hierarchical) and shows how clear the split is.",
+  "tag:analysis": "Pick a focus hashtag, then group works or hashtags into clusters with Louvain (network) or Ward (hierarchical). Hover a cluster in the legend on the map to light it up, click to keep it; hover a dot to see its closest items.",
   "tag:dimensions": "Each dot is a hashtag. Hashtags that tend to appear on the same works sit on the same side of an axis; the axes are found by standardized PCA or correspondence analysis. Hover for details, click for all five coordinates.",
   "work:full": "Each node is a work. Works are linked when their hashtags overlap, and more similar works sit closer together; bigger nodes are linked to more works. Hover for the full title, click for details.",
   "work:comparison": "Pick two or more works to see which hashtags they share and which belong to only one of them."
@@ -1407,7 +1407,7 @@ function silhouetteScore(vectors, labels) {
 
 
 // =====================================================================
-// Analysis tab: ① co-occurrence with a focus tag, ② community detection
+// Analysis tab: clusters around a focus tag (the co-occurrence table now lives in the Network tab)
 // =====================================================================
 const CLUSTER_PALETTE = ["#d1495b", "#2e86ab", "#e09f3e", "#5b8e3e", "#8e5ea2", "#2a9d8f", "#b5651d", "#c77dba", "#6c8ead", "#a1a14a"];
 
@@ -1440,8 +1440,10 @@ function analysisWorks() {
 
 // ① For every other tag: how often it appears with the focus tag, and from
 // both directions as a share.
+// Paired Hashtags (Network tab): uses the Network's focus tag and hidden tags.
 function cooccurrenceRows() {
-  const focus = state.analysis.focus;
+  const focus = state.closeness.focus;
+  const hidden = state.excludedTags;
   const all = worksWithTags();
   const focusWorks = all.filter((w) => state.tagsByWork.get(w.work_id).has(focus));
   const fx = focusWorks.length;
@@ -1449,7 +1451,7 @@ function cooccurrenceRows() {
   for (const w of all) for (const t of state.tagsByWork.get(w.work_id)) totals.set(t, (totals.get(t) || 0) + 1);
   const together = new Map();
   for (const w of focusWorks) for (const t of state.tagsByWork.get(w.work_id)) {
-    if (t !== focus && !state.analysis.hidden.has(t)) together.set(t, (together.get(t) || 0) + 1);
+    if (t !== focus && !hidden.has(t)) together.set(t, (together.get(t) || 0) + 1);
   }
   return {
     focusCount: fx,
@@ -1460,7 +1462,9 @@ function cooccurrenceRows() {
       together: n,
       ofFocus: fx ? n / fx : 0,
       tagTotal: totals.get(tag) || 0,
-      ofTag: totals.get(tag) ? n / totals.get(tag) : 0
+      ofTag: totals.get(tag) ? n / totals.get(tag) : 0,
+      // same smoothed ratio as the closeness view: % with the focus ÷ % without it
+      rr: smoothedRR(n, fx, (totals.get(tag) || 0) - n, all.length - fx)
     }))
   };
 }
@@ -1788,6 +1792,7 @@ function refreshAnalysisInPlace() {
     for (const n of currentSim.nodes()) n.cluster = res.clusterOf.get(n.id);
     for (const n of g.nodes) n.cluster = res.clusterOf.get(n.id);
     graphLayer.selectAll("g.node").select("circle")
+      .transition().duration(550)
       .attr("fill", (d) => nodeColor(d))
       .attr("stroke", (d) => nodeStroke(d));
     // re-read the cluster targets and let nodes drift toward them
@@ -1923,6 +1928,23 @@ function renderAnalysisHiddenChips() {
 
 function pct(x) { return `${Math.round(x * 100)}%`; }
 
+function renderAnalysisFocus() {
+  const f = state.analysis.focus;
+  const focusCat = state.metaByTag.get(f)?.category;
+  d3.select("#an-focus-current").html(
+    `<span class="cat-dot" style="background:${categoryColor(focusCat)}"></span><span class="an-focus-label">Focus</span><strong>${escapeHtml(f)}</strong>`);
+  const n = Array.from(state.tagsByWork.values()).filter((t) => t.has(f)).length;
+  d3.select("#an-focus-summary").html(
+    `<strong>${escapeHtml(f)}</strong> is on <strong>${n}</strong> of ${state.tagsByWork.size} works` +
+    (state.analysis.hidden.size ? ` · ${Array.from(state.analysis.hidden).filter((t) => t !== f).length} hashtag(s) hidden from the clusters.` : "."));
+}
+
+// Emphasise one node on the current map (null clears).
+function highlightMapNode(tag) {
+  graphLayer.selectAll("g.node").classed("cmp-hl", (d) => tag != null && d.id === tag)
+    .filter((d) => tag != null && d.id === tag).raise();
+}
+
 function analysisTableCategories() {
   if (!state.analysis.tableCats) {
     state.analysis.tableCats = new Set(state.metadata.map((d) => d.category));
@@ -1970,12 +1992,10 @@ function renderCooccurrenceTable() {
   const rows = allRows.filter((r) => on.has(r.category));
   const key = state.analysis.sort;
   rows.sort((x, y) => (y[key] - x[key]) || (y.together - x.together) || x.tag.localeCompare(y.tag, "ko"));
-  const focusCat = state.metaByTag.get(state.analysis.focus)?.category;
-  d3.select("#an-focus-current").html(
-    `<span class="cat-dot" style="background:${categoryColor(focusCat)}"></span><span class="an-focus-label">Focus</span><strong>${escapeHtml(state.analysis.focus)}</strong>`);
-  d3.select("#an-focus-summary").html(
-    `<strong>${escapeHtml(state.analysis.focus)}</strong> is on <strong>${focusCount}</strong> of ${total} works and appears with <strong>${allRows.length}</strong> other hashtags` +
-    (state.analysis.hidden.size ? ` (${Array.from(state.analysis.hidden).filter((t) => t !== state.analysis.focus).length} hidden).` : "."));
+  const f = state.closeness.focus;
+  d3.select("#pt-focus").html(
+    `Focus <strong>${escapeHtml(f)}</strong> (set under Closeness above) is on <strong>${focusCount}</strong> of ${total} works and appears with <strong>${allRows.length}</strong> other hashtags` +
+    (state.excludedTags.size ? ` (${Array.from(state.excludedTags).filter((t) => t !== f).length} hidden).` : "."));
   d3.select("#an-table-head").selectAll("th[data-sort]").classed("sorted", function () { return this.dataset.sort === key; });
   d3.select("#an-table-shown").text(rows.length === allRows.length ? "" : `Showing ${rows.length} of ${allRows.length} hashtags.`);
   d3.select("#an-table-body").selectAll("tr").data(rows, (d) => d.tag).join("tr")
@@ -1983,11 +2003,18 @@ function renderCooccurrenceTable() {
       <td><span class="cat-dot" style="background:${categoryColor(d.category)}"></span>${escapeHtml(d.tag)}</td>
       <td class="num">${d.together}</td>
       <td class="num">${pct(d.ofFocus)}</td>
-      <td class="num">${pct(d.ofTag)} <span class="small-note">(${d.together}/${d.tagTotal})</span></td>`);
+      <td class="num">${pct(d.ofTag)} <span class="small-note">(${d.together}/${d.tagTotal})</span></td>
+      <td class="num">×${d.rr >= 10 ? d.rr.toFixed(0) : d.rr.toFixed(1)}</td>`)
+    .on("mouseenter", (event, d) => highlightMapNode(d.tag))
+    .on("mouseleave", () => highlightMapNode(null))
+    .on("click", (event, d) => {
+      const n = (state.currentGraph?.nodes || []).find((x) => x.id === d.tag);
+      if (n) showNodeInspector(n);
+    });
 }
 
 function renderAnalysisPanel() {
-  renderCooccurrenceTable();
+  renderAnalysisFocus();
   const res = state.analysis.result;
   if (!res) return;
   const clusterCats = analysisClusterCategories();
@@ -2063,7 +2090,7 @@ function renderAnalysisPanel() {
           .map((w) => `<button type="button" class="an-work" data-id="${escapeHtml(w.work_id)}">#${escapeHtml(w.rank)} ${escapeHtml(w.title)}</button>`).join("")}</div>`
       : "";
     return `
-      <details class="an-cluster" ${c.index < 4 ? "open" : ""}>
+      <details class="an-cluster" data-c="${c.index}" ${c.index < 4 ? "open" : ""}>
         <summary><span class="cmp-dot" style="background:${clusterColor(c.index)}"></span>
           <span>Cluster ${c.index + 1}${c.hasFocus ? ` · contains ${escapeHtml(res.focus)}` : ""}</span>
           <span class="cmp-count">${c.members.length} ${unitPlural}</span></summary>
@@ -2080,6 +2107,10 @@ function renderAnalysisPanel() {
       : `<p class="small-note">${res.unlinked.length} ${unitPlural} have no links at this setting and are left out of the clusters (white on the map).</p>`)
     : "";
   d3.select("#an-clusters").html(cards + unlinked);
+  d3.select("#an-clusters").selectAll("details.an-cluster")
+    .on("mouseenter", function () { state.analysis.hoverCluster = +this.dataset.c; applyClusterSpotlight(); })
+    .on("mouseleave", () => { state.analysis.hoverCluster = null; applyClusterSpotlight(); });
+  renderClusterLegend(res);
   d3.select("#an-clusters").selectAll("button.an-work").on("click", function () { openWorkCard(this.dataset.id); });
   d3.select("#an-clusters").selectAll("button.an-more").on("click", function () {
     const i = +this.dataset.i;
@@ -2239,12 +2270,12 @@ function downloadCooccurrenceCSV() {
   const on = analysisTableCategories();
   const rows = allRows.filter((r) => on.has(r.category)); // export what the table shows
   rows.sort((x, y) => y.together - x.together || x.tag.localeCompare(y.tag, "ko"));
-  const f = state.analysis.focus;
+  const f = state.closeness.focus;
   downloadCSV(`cooccurrence_${f}.csv`, [
     ["focus_tag", "focus_works", "total_works", "tag", "category", "works_together",
-      "share_of_focus_works", "tag_total_works", "share_of_tag_works_with_focus"],
+      "share_of_focus_works", "tag_total_works", "share_of_tag_works_with_focus", "closeness_ratio_smoothed"],
     ...rows.map((r) => [f, focusCount, total, r.tag, r.category, r.together,
-      r.ofFocus.toFixed(4), r.tagTotal, r.ofTag.toFixed(4)])
+      r.ofFocus.toFixed(4), r.tagTotal, r.ofTag.toFixed(4), r.rr.toFixed(4)])
   ]);
 }
 
@@ -2669,6 +2700,10 @@ function drawNetwork(graph) {
     });
 }
 
+  // remember where things were, so a new layout of the same items can glide from there
+  const prevPositions = currentSim ? new Map(currentSim.nodes().map((n) => [n.id, { x: n.x, y: n.y }])) : null;
+  if (glideTimer) { glideTimer.stop(); glideTimer = null; }
+  d3.select("#cluster-legend").classed("hidden", true);
   if (currentSim) currentSim.stop();
   currentSim = null;
   if (graph.mode === "dims") { drawDimensions(graph, width, height); return; }
@@ -2906,6 +2941,10 @@ function drawNetwork(graph) {
     showNodeInspector(d);
     showNodeTooltip(event, d);
   })
+  .on("mouseenter.analysis", function (event, d) {
+    if (isClusters) showClusterNeighbours(d, embedMode);
+  })
+  .on("mouseleave.analysis", () => { if (isClusters) clearClusterNeighbours(); })
   .on("click", function (event, d) {
     event.stopPropagation();
     // Wait briefly so a double-click (pin toggle) does not also count as a click.
@@ -2981,6 +3020,37 @@ function drawNetwork(graph) {
   };
   currentRender = render;
   currentSim = simulation;
+
+  // Analysis: glide from the previous layout instead of jumping.
+  if (isClusters && prevPositions) {
+    const known = nodes.filter((n) => prevPositions.has(n.id) && n.fx == null);
+    if (known.length >= nodes.length * 0.5) {
+      if (embedMode) {
+        simulation.stop();
+        const start = nodes.map((n) => {
+          const p = prevPositions.get(n.id);
+          return { n, x0: p ? p.x : n.ex, y0: p ? p.y : n.ey };
+        });
+        for (const st of start) { st.n.x = st.x0; st.n.y = st.y0; }
+        render();
+        glideTimer = d3.timer((elapsed) => {
+          const k = d3.easeCubicInOut(Math.min(1, elapsed / 900));
+          for (const st of start) {
+            st.n.x = st.x0 + (st.n.ex - st.x0) * k;
+            st.n.y = st.y0 + (st.n.ey - st.y0) * k;
+          }
+          render();
+          if (k >= 1) {
+            glideTimer.stop();
+            glideTimer = null;
+            if (currentSim === simulation) simulation.alpha(0.15).restart();
+          }
+        });
+      } else {
+        for (const n of known) { const p = prevPositions.get(n.id); n.x = p.x; n.y = p.y; }
+      }
+    }
+  }
 
   simulation.on("tick", () => {
     render();
@@ -4810,6 +4880,7 @@ function embedDrag(simulation) {
   };
   return d3.drag()
     .on("start", (event, d) => {
+      clearClusterNeighbours();
       magnifier.dragging = true;
       if (!event.active) simulation.alphaTarget(0.3).restart();
       d.fx = d.x; d.fy = d.y;
@@ -4827,4 +4898,85 @@ function embedDrag(simulation) {
       lines = null;
       simulation.alpha(0.8).restart();
     });
+}
+
+// ======================================================================
+// ---- Analysis: interaction (cluster spotlight, legend on the map, neighbours on hover) ----
+// ======================================================================
+let glideTimer = null;
+
+function applyClusterSpotlight() {
+  const a = state.analysis;
+  const c = a.hoverCluster != null ? a.hoverCluster : a.spot;
+  const on = state.lens === "tag" && state.viewMode === "analysis" && c != null;
+  graphLayer.selectAll("g.node").classed("an-dim", (d) => on && d.cluster !== c);
+  graphLayer.selectAll("line.link").classed("an-dim", (d) => on && !(d.source.cluster === c && d.target.cluster === c));
+  d3.selectAll("#cluster-legend .cl-chip")
+    .classed("active", function () { return +this.dataset.c === a.spot; })
+    .classed("faded", function () { return on && +this.dataset.c !== c; });
+  d3.selectAll("#an-clusters details.an-cluster").classed("spot", function () { return on && +this.dataset.c === c; });
+  d3.select("#cluster-legend .cl-clear").classed("hidden", a.spot == null);
+}
+
+function renderClusterLegend(res) {
+  let box = d3.select("#cluster-legend");
+  if (box.empty()) {
+    box = d3.select("#network-area").append("div").attr("id", "cluster-legend").attr("class", "cluster-legend");
+  }
+  if (!res || !res.clusters.length) { box.classed("hidden", true); return; }
+  if (state.analysis.spot != null && state.analysis.spot >= res.clusters.length) state.analysis.spot = null;
+  const unit = res.kind === "work" ? "works" : "tags";
+  const chips = res.clusters.map((c) => {
+    const tops = c.topTags.filter((t) => t.tag !== res.focus).slice(0, 2).map((t) => t.tag).join(" · ");
+    return `<button type="button" class="cl-chip" data-c="${c.index}">
+      <span class="cmp-dot" style="background:${clusterColor(c.index)}"></span>
+      <span class="cl-chip-name">${c.index + 1}</span><span class="cl-chip-n">${c.members.length}</span>
+      <span class="cl-chip-tags">${escapeHtml(tops)}</span></button>`;
+  }).join("");
+  box.classed("hidden", false).html(`
+    <div class="cl-legend-head">Clusters <span>(${unit})</span><button type="button" class="cl-clear hidden">Show all</button></div>
+    ${chips}
+    <div class="cl-legend-hint">Hover a cluster to light it up · click to keep it · hover a dot to see its closest ${unit}</div>`);
+  box.selectAll(".cl-chip")
+    .on("mouseenter", function () { state.analysis.hoverCluster = +this.dataset.c; applyClusterSpotlight(); })
+    .on("mouseleave", () => { state.analysis.hoverCluster = null; applyClusterSpotlight(); })
+    .on("click", function () {
+      const c = +this.dataset.c;
+      state.analysis.spot = state.analysis.spot === c ? null : c;
+      applyClusterSpotlight();
+    });
+  box.select(".cl-clear").on("click", () => { state.analysis.spot = null; applyClusterSpotlight(); });
+  applyClusterSpotlight();
+}
+
+// Hovering a dot: its closest items stay bright, the rest fade.
+// Embedding map: lines to its most similar items; network: its own links.
+function showClusterNeighbours(d, embedMode) {
+  const nb = new Set([d.id]);
+  let ties = [];
+  if (embedMode) {
+    ties = (currentSim?.__springs || []).filter((l) => l.source === d || l.target === d);
+    for (const l of ties) { nb.add(l.source.id); nb.add(l.target.id); }
+  } else {
+    graphLayer.selectAll("line.link").each((l) => {
+      if (l.source === d || l.target === d) { nb.add(l.source.id); nb.add(l.target.id); }
+    });
+    graphLayer.selectAll("line.link").classed("an-nb-dim", (l) => l.source !== d && l.target !== d)
+      .classed("an-nb-on", (l) => l.source === d || l.target === d);
+  }
+  graphLayer.selectAll("g.node").classed("an-nb-dim", (n) => !nb.has(n.id)).classed("an-nb-on", (n) => nb.has(n.id));
+  graphLayer.selectAll("g.embed-ties-hover").remove();
+  if (ties.length) {
+    graphLayer.insert("g", ".nodes").attr("class", "embed-ties embed-ties-hover")
+      .selectAll("line").data(ties).join("line").attr("class", "embed-tie")
+      .attr("stroke-width", (l) => 0.8 + l.sim * 4)
+      .attr("x1", (l) => l.source.x).attr("y1", (l) => l.source.y)
+      .attr("x2", (l) => l.target.x).attr("y2", (l) => l.target.y);
+  }
+}
+
+function clearClusterNeighbours() {
+  graphLayer.selectAll("g.node").classed("an-nb-dim", false).classed("an-nb-on", false);
+  graphLayer.selectAll("line.link").classed("an-nb-dim", false).classed("an-nb-on", false);
+  graphLayer.selectAll("g.embed-ties-hover").remove();
 }
