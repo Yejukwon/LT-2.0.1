@@ -1649,3 +1649,38 @@ g.node { transition: opacity 0.2s; }
 .cl-legend-hint { font-size: 10.5px; color: #8a817c; margin: 5px 2px 0; line-height: 1.35; }
 #an-clusters details.an-cluster.spot { background: #f5f0ec; border-radius: 6px; }
 g.node.an-nb-on { opacity: 1 !important; }
+
+/* Matrix tab */
+.mode-switch { grid-template-columns: repeat(3, 1fr); }
+.mode-switch button { font-size: 12.5px; padding: 7px 4px; }
+.mx-presets { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 4px; }
+.mx-presets button { width: auto; padding: 4px 9px; font-size: 12px; font-weight: 600; border-radius: 999px; }
+.mx-measure { grid-template-columns: repeat(4, 1fr); }
+.mx-measure button { font-size: 12px; padding: 7px 2px; }
+#mx-focus-block.hidden { display: none; }
+.mx-scale { margin: 4px 0 10px; }
+.mx-scale-bar { height: 10px; border-radius: 5px; border: 1px solid #e6e1dd; }
+.mx-scale-ticks { display: flex; justify-content: space-between; font-size: 11px; color: #8a817c; margin-top: 3px; }
+.mx-caption { font-size: 12.5px; font-weight: 700; fill: #6b625e; }
+.mx-caption-sub { font-weight: 400; fill: #8a817c; }
+.mx-row-label text, .mx-col-label text { fill: #4a423e; }
+.mx-row-label.mx-hl text, .mx-col-label.mx-hl text { fill: #111; font-weight: 700; }
+.mx-cell { cursor: pointer; }
+.mx-cell.mx-diag { cursor: default; }
+.mx-cell.mx-diag rect { stroke: #cfc6c1; stroke-dasharray: 3 2; }
+.mx-cell.mx-hover rect { stroke: #111; stroke-width: 2; }
+.mx-v { fill: #2b2624; pointer-events: none; font-variant-numeric: tabular-nums; }
+.mx-v-light { fill: #fff; }
+.mx-v-diag { fill: #a39a95; }
+.mx-tip-hint { color: #a39a95; font-size: 11.5px; }
+.mx-top-list { list-style: none; margin: 6px 0 0; padding: 0; }
+.mx-top-list li { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; padding: 4px 4px; font-size: 12.5px; border-radius: 4px; cursor: pointer; }
+.mx-top-list li:hover { background: #f5f0ec; }
+.mx-top-pair { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mx-top-pair .cat-dot { margin-right: 3px; }
+.mx-x { color: #a39a95; margin: 0 4px; }
+.mx-top-v { font-weight: 700; font-variant-numeric: tabular-nums; }
+.mx-top-n { color: #8a817c; font-size: 11.5px; }
+.mx-work-list { margin: 4px 0 0; padding-left: 0; list-style: none; }
+.mx-work { width: 100%; text-align: left; border: none; background: transparent; padding: 3px 4px; font-size: 12.5px; font-weight: 400; border-radius: 4px; }
+.mx-work:hover { background: #f5f0ec; text-decoration: underline; }

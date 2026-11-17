@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Romance Fantasy Hashtag Network</title>
-  <link rel="stylesheet" href="css/style.css?v=29">
+  <link rel="stylesheet" href="css/style.css?v=30">
 </head>
 
 <body>
@@ -36,6 +36,7 @@
           <button type="button" data-mode="works">Find works</button>
           <button type="button" data-mode="analysis">Analysis</button>
           <button type="button" data-mode="dimensions">Dimensions</button>
+          <button type="button" data-mode="matrix">Matrix</button>
         </div>
         <p id="mode-help" class="small-note mode-help"></p>
         <p id="data-status" class="data-status">Loading data...</p>
@@ -394,6 +395,91 @@
           hashtag on one or two works can pull an axis on its own.</p>
       </section>
 
+      <!-- Hashtag lens: Matrix (co-occurrence between two chosen sets of hashtags) -->
+      <section class="panel-section" data-modes="tag:matrix">
+        <div class="an-heading">
+          <h2>Co-occurrence Matrix</h2>
+          <button id="mx-download" type="button" class="an-download">CSV</button>
+        </div>
+        <div class="an-field-label">Quick pick (rows × columns)</div>
+        <div id="mx-presets" class="mx-presets">
+          <button type="button" data-preset="female_protagonist>male_protagonist">여주 × 남주</button>
+          <button type="button" data-preset="female_protagonist>relationship">여주 × 관계</button>
+          <button type="button" data-preset="female_protagonist>genre_plot">여주 × 장르·플롯</button>
+          <button type="button" data-preset="male_protagonist>relationship">남주 × 관계</button>
+          <button type="button" data-preset="all>all">All × All</button>
+        </div>
+        <details class="dm-cats" open>
+          <summary>Rows ↓ (vertical axis)</summary>
+          <div class="an-sub">Layer 1 (who / what)</div>
+          <div id="mx-r-l1" class="checkbox-group"></div>
+          <div class="an-sub">Layer 2 (meaning)</div>
+          <div id="mx-r-l2" class="checkbox-group"></div>
+        </details>
+        <details class="dm-cats" open>
+          <summary>Columns → (horizontal axis)</summary>
+          <div class="an-sub">Layer 1 (who / what)</div>
+          <div id="mx-c-l1" class="checkbox-group"></div>
+          <div class="an-sub">Layer 2 (meaning)</div>
+          <div id="mx-c-l2" class="checkbox-group"></div>
+        </details>
+        <p class="small-note">A hashtag is used when its layer-1 category is on and at least one of its layer-2 categories is on.</p>
+        <button id="mx-swap" type="button" class="secondary-button">Swap rows ↔ columns</button>
+        <div class="an-field-label" style="margin-top:12px">Cell value</div>
+        <div id="mx-measure" class="an-alg-switch mx-measure" role="group" aria-label="Cell value">
+          <button type="button" data-measure="count">Works</button>
+          <button type="button" data-measure="rowpct">% of row</button>
+          <button type="button" data-measure="jaccard">Jaccard</button>
+          <button type="button" data-measure="lift">Lift</button>
+        </div>
+        <p id="mx-measure-help" class="small-note an-method-help"></p>
+        <div id="mx-scale" class="mx-scale"></div>
+        <label>
+          Works included
+          <select id="mx-scope">
+            <option value="all">All works with hashtags</option>
+            <option value="focus">Only works with a focus hashtag</option>
+          </select>
+        </label>
+        <div id="mx-focus-block" class="filter-block hidden">
+          <div id="mx-focus-current" class="an-focus-current"></div>
+          <label>
+            Category
+            <select id="mx-category"></select>
+          </label>
+          <label>Tag</label>
+          <div class="works-add-row">
+            <select id="mx-tag"></select>
+            <button id="mx-set" type="button">Set focus</button>
+          </div>
+        </div>
+        <label>
+          Use hashtags on at least
+          <select id="mx-min">
+            <option value="1">1 work</option>
+            <option value="2">2 works</option>
+            <option value="3">3 works</option>
+            <option value="4">4 works</option>
+            <option value="5">5 works</option>
+          </select>
+        </label>
+        <label>
+          Order
+          <select id="mx-sort">
+            <option value="freq">Most works first</option>
+            <option value="category">By category</option>
+            <option value="name">가나다</option>
+          </select>
+        </label>
+        <label class="checkbox-row"><input type="checkbox" id="mx-romance"> Include 로맨스판타지 (on almost every work)</label>
+        <p id="mx-summary" class="small-note an-summary"></p>
+      </section>
+
+      <section class="panel-section" data-modes="tag:matrix">
+        <h2>Strongest Pairs</h2>
+        <div id="mx-top"></div>
+      </section>
+
       <!-- Work lens: Network -->
       <section class="panel-section" data-modes="work:full">
         <h2>Work Similarity</h2>
@@ -528,6 +614,15 @@
       </div>
 
       <div>
+        <h3>Matrix</h3>
+        <p>
+          Choose which categories of hashtags go on the rows and on the columns (for example 여주 × 남주). Each cell
+          shows how many works carry both hashtags, or the same pair as % of the row, Jaccard, or lift. Click a cell to
+          list the works.
+        </p>
+      </div>
+
+      <div>
         <h3>Read the edges</h3>
         <p>
           An edge means that two hashtags appear in the same work. A thicker edge means that the
@@ -539,6 +634,6 @@
 </div>
   
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-  <script src="js/app.js?v=29"></script>
+  <script src="js/app.js?v=30"></script>
 </body>
 </html>

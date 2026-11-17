@@ -47,6 +47,10 @@ const state = {
   dims: { method: "pca", scope: "all", focus: "능력녀", minWorks: 3, includeRomance: false, x: 0, y: 1, colorBy: "l2", result: null,
     // display-only category filters (null = all shown); the axes are not recalculated
     showL1: null, showL2: null },
+  // Matrix tab (hashtag lens): co-occurrence matrix; rows / cols hold showL1 / showL2 sets (null = all)
+  // measure "count" | "rowpct" | "jaccard" | "lift"; sort "freq" | "category" | "name"
+  matrix: { rows: { showL1: new Set(["female_protagonist"]), showL2: null }, cols: { showL1: new Set(["male_protagonist"]), showL2: null },
+    measure: "count", scope: "all", focus: "능력녀", minWorks: 3, includeRomance: false, sort: "freq", result: null },
   worksListVisible: true,
   currentGraph: null
 };
@@ -82,6 +86,7 @@ Promise.all([
     setupWorkLensControls();
     setupAnalysisControls();
     setupDimsControls();
+    setupMatrixControls();
     setupCompareViewControls();
     setupEmbedControls();
     setupClosenessControls();
@@ -521,6 +526,8 @@ function updateNetwork() {
     graph = buildAnalysisGraph();
   } else if (mode === "dimensions") {
     graph = buildDimsGraph();
+  } else if (mode === "matrix") {
+    graph = buildMatrixGraph();
   } else {
     graph = mode === "works" && state.worksTags.size
       ? buildWorksGraph()
@@ -541,6 +548,7 @@ function updateNetwork() {
     if (mode === "comparison") compareSelectedTags();
     if (mode === "analysis") { renderAnalysisPanel(); renderEmbedControls(); }
     if (mode === "dimensions") renderDimsPanel();
+    if (mode === "matrix") renderMatrixPanel();
     if (mode === "full") { renderClosenessPanel(); renderCooccurrenceTable(); }
   } else {
     renderHighlightChips();
@@ -558,7 +566,10 @@ function updateNetwork() {
   }
 
   let counts;
-  if (graph.mode === "dims") {
+  if (graph.mode === "matrix") {
+    const r = graph.result;
+    counts = `<strong>${r.rowTags.length}</strong> × <strong>${r.colTags.length}</strong> hashtags · <strong>${r.N}</strong> works`;
+  } else if (graph.mode === "dims") {
     const r = graph.result;
     counts = `<strong>${graph.nodes.length}</strong> hashtags · <strong>${r.ids.length - r.droppedWorks}</strong> works`;
   } else if (graph.mode === "works" || graph.mode === "worknet" || (graph.mode === "clusters" && graph.kind === "work")) {
@@ -598,6 +609,7 @@ const MODE_HELP = {
   "tag:works": "Pick hashtags to list and map the works that carry them.",
   "tag:analysis": "Pick a focus hashtag, then group works or hashtags into clusters with Louvain (network) or Ward (hierarchical). On the embedding map, hover a dot to see its most similar items.",
   "tag:dimensions": "Each dot is a hashtag. Hashtags that tend to appear on the same works sit on the same side of an axis; the axes are found by standardized PCA or correspondence analysis. Hover for details, click for all five coordinates.",
+  "tag:matrix": "A table of hashtag pairs: pick which categories go on the rows and on the columns, and each cell shows how often the two hashtags appear on the same works. Hover a cell for details, click it to list the works.",
   "work:full": "Each node is a work. Works are linked when their hashtags overlap, and more similar works sit closer together; bigger nodes are linked to more works. Hover for the full title, click for details.",
   "work:comparison": "Pick two or more works to see which hashtags they share and which belong to only one of them."
 };
@@ -621,8 +633,9 @@ function setLens(lens, initial = false) {
   d3.select('#mode-switch button[data-mode="works"]').classed("mode-hidden", lens === "work");
   d3.select('#mode-switch button[data-mode="analysis"]').classed("mode-hidden", lens === "work");
   d3.select('#mode-switch button[data-mode="dimensions"]').classed("mode-hidden", lens === "work");
+  d3.select('#mode-switch button[data-mode="matrix"]').classed("mode-hidden", lens === "work");
   d3.select("#mode-switch").classed("two-tabs", lens === "work");
-  if (lens === "work" && ["works", "analysis", "dimensions"].includes(state.viewMode)) state.viewMode = "full";
+  if (lens === "work" && ["works", "analysis", "dimensions", "matrix"].includes(state.viewMode)) state.viewMode = "full";
   setViewMode(state.viewMode, initial);
 }
 
@@ -636,7 +649,7 @@ function setViewMode(mode, initial = false) {
     return !this.dataset.modes.split(" ").includes(key);
   });
   d3.select("#mode-help").text(MODE_HELP[key] || "");
-  d3.select(".pin-bar").classed("mode-hidden", key === "tag:dimensions" || (key === "tag:analysis" && state.analysis.layout === "embed"));
+  d3.select(".pin-bar").classed("mode-hidden", key === "tag:dimensions" || key === "tag:matrix" || (key === "tag:analysis" && state.analysis.layout === "embed"));
   hideNodeTooltip();
   d3.select("#inspector").html(state.lens === "work"
     ? "Click a link between two works to see the hashtags they share."
@@ -2699,6 +2712,7 @@ function drawNetwork(graph) {
   if (currentSim) currentSim.stop();
   currentSim = null;
   if (graph.mode === "dims") { drawDimensions(graph, width, height); return; }
+  if (graph.mode === "matrix") { drawMatrix(graph, width, height); return; }
   let compareLayout = null;
 
   let closeLayout = null;
@@ -4635,6 +4649,461 @@ function downloadDimsCSV() {
   });
   const tagPart = state.dims.scope === "focus" ? `_${state.dims.focus}` : "_all";
   downloadCSV(`dimensions_${r.method}${tagPart}.csv`, rows);
+}
+
+// ======================================================================
+// ---- Matrix tab: co-occurrence between two chosen sets of hashtags ----
+// ======================================================================
+// Rows and columns are picked by layer-1 / layer-2 category (same rule as the
+// other filters). A cell counts the works that carry both hashtags; the cell
+// value can also be shown as % of the row, Jaccard, or lift.
+const MATRIX_MEASURES = {
+  count: {
+    label: "Works",
+    help: "How many works carry <strong>both</strong> hashtags. Common hashtags get big numbers with almost anything, " +
+      "so use Lift or Jaccard to see which pairs are <em>unusually</em> close.",
+    value: (n) => n,
+    fmt: (v) => String(v),
+    csv: (v) => String(v),
+    kind: "seq"
+  },
+  rowpct: {
+    label: "% of row",
+    help: "Of the works with the <strong>row</strong> hashtag, the share that also carry the column hashtag. " +
+      "Read it across a row. It is not symmetric: 80% of A-works can have B while only 20% of B-works have A.",
+    value: (n, a) => (a ? n / a : 0),
+    fmt: (v) => String(Math.round(v * 100)),
+    csv: (v) => (v * 100).toFixed(1),
+    kind: "seq"
+  },
+  jaccard: {
+    label: "Jaccard",
+    help: "Works with both ÷ works with either (0–1). It corrects for how common each hashtag is: " +
+      "1 means the two always appear together, 0 means never.",
+    value: (n, a, b) => (a + b - n ? n / (a + b - n) : 0),
+    fmt: (v) => v.toFixed(2).replace(/^0\./, "."),
+    csv: (v) => v.toFixed(4),
+    kind: "seq"
+  },
+  lift: {
+    label: "Lift",
+    help: "Observed ÷ expected if the two hashtags were unrelated: (works with both × all works) ÷ (row works × column works). " +
+      "<strong>Above 1</strong> (blue) = together more often than chance; <strong>below 1</strong> (orange) = less often. " +
+      "Pairs that never meet are left blank, and pairs that share only one work are faded, because a single work can swing the value.",
+    value: (n, a, b, N) => (a && b ? (n * N) / (a * b) : 0),
+    fmt: (v) => v.toFixed(1),
+    csv: (v) => v.toFixed(4),
+    kind: "div"
+  }
+};
+const MATRIX_MIN_SHARED = 2; // pairs with fewer shared works are faded (lift) and left out of Strongest pairs
+
+// One rule for both axes: layer-1 on and at least one layer-2 on.
+// The focus tag (in focus scope) and, unless included, 로맨스판타지 are left out.
+function matrixUsable(tag, freq) {
+  const m = state.matrix;
+  if ((freq.get(tag) || 0) < m.minWorks) return false;
+  if (!m.includeRomance && tag === "로맨스판타지") return false;
+  if (m.scope === "focus" && tag === m.focus) return false;
+  return true;
+}
+
+function matrixOrder(tags, freq) {
+  const byFreq = (a, b) => (freq.get(b) - freq.get(a)) || a.localeCompare(b, "ko");
+  if (state.matrix.sort === "name") return tags.sort((a, b) => a.localeCompare(b, "ko"));
+  if (state.matrix.sort === "category") {
+    const rank = (t) => {
+      const m = state.metaByTag.get(t) || {};
+      const l2 = (m.layer2 || [])[0];
+      const i = L2_ORDER.indexOf(l2);
+      return (L1_ORDER.indexOf(m.category) + 1) * 100 + (i < 0 ? 99 : i);
+    };
+    return tags.sort((a, b) => (rank(a) - rank(b)) || byFreq(a, b));
+  }
+  return tags.sort(byFreq);
+}
+
+function computeMatrix() {
+  const m = state.matrix;
+  const ids = Array.from(state.tagsByWork.keys())
+    .filter((id) => m.scope !== "focus" || state.tagsByWork.get(id).has(m.focus))
+    .sort();
+  const sets = ids.map((id) => state.tagsByWork.get(id));
+  const freq = new Map();
+  for (const s of sets) for (const t of s) freq.set(t, (freq.get(t) || 0) + 1);
+  const pick = (view) => matrixOrder(Array.from(freq.keys()).filter((t) => matrixUsable(t, freq) && layerVisible(t, view)), freq);
+  const rowTags = pick(m.rows);
+  const colTags = pick(m.cols);
+  const ri = new Map(rowTags.map((t, i) => [t, i]));
+  const ci = new Map(colTags.map((t, i) => [t, i]));
+  const C = rowTags.map(() => new Array(colTags.length).fill(0));
+  sets.forEach((s) => {
+    const rs = [], cs = [];
+    for (const t of s) { if (ri.has(t)) rs.push(ri.get(t)); if (ci.has(t)) cs.push(ci.get(t)); }
+    for (const i of rs) for (const j of cs) C[i][j]++;
+  });
+  m.result = { ids, N: ids.length, rowTags, colTags, freq, C };
+  return m.result;
+}
+
+function matrixValue(r, i, j, measure = state.matrix.measure) {
+  const a = r.rowTags[i], b = r.colTags[j];
+  return MATRIX_MEASURES[measure].value(r.C[i][j], r.freq.get(a), r.freq.get(b), r.N);
+}
+
+// Colour scale for the current measure. Sequential measures are scaled to the
+// largest off-diagonal value; lift is diverging around 1 on a log scale (¼ … 4).
+function matrixScale(r) {
+  const M = MATRIX_MEASURES[state.matrix.measure];
+  if (M.kind === "div") {
+    const warm = d3.interpolateRgb("#f4f1ee", "#d0643f");
+    const cool = d3.interpolateRgb("#f4f1ee", "#2166ac");
+    const t = (v) => Math.max(-1, Math.min(1, v > 0 ? Math.log2(v) / 2 : -1));
+    return { kind: "div", t, color: (v) => { const x = t(v); return x >= 0 ? cool(x) : warm(-x); }, dark: (v) => Math.abs(t(v)) > 0.6 };
+  }
+  let max = 0;
+  r.rowTags.forEach((a, i) => r.colTags.forEach((b, j) => {
+    if (a !== b) max = Math.max(max, matrixValue(r, i, j));
+  }));
+  max = max || 1;
+  const t = (v) => Math.min(1, v / max);
+  return { kind: "seq", max, t, color: (v) => d3.interpolateBlues(0.05 + 0.85 * t(v)), dark: (v) => t(v) > 0.55 };
+}
+
+function buildMatrixGraph() {
+  const r = computeMatrix();
+  return { mode: "matrix", nodes: [], links: [], result: r };
+}
+
+function matrixTagColor(tag) {
+  const m = state.metaByTag.get(tag) || {};
+  return m.layer2 && m.layer2.length ? layer2Color(m.layer2[0]) : categoryColor(m.category);
+}
+
+function drawMatrix(graph, width, height) {
+  const r = graph.result;
+  currentRender = null;
+  const nR = r.rowTags.length, nC = r.colTags.length;
+  if (!nR || !nC) {
+    graphLayer.append("text").attr("class", "dm-empty").attr("x", width / 2).attr("y", height / 2)
+      .attr("text-anchor", "middle")
+      .text(!nR ? "No row hashtags: switch on a category under Rows." : "No column hashtags: switch on a category under Columns.");
+    return;
+  }
+  const M = MATRIX_MEASURES[state.matrix.measure];
+  const sc = matrixScale(r);
+  const labelW = 118, labelH = 100, pad = 26;
+  const cell = Math.max(8, Math.min(34, Math.floor(Math.min(
+    (width - pad * 2 - labelW) / nC, (height - pad * 2 - labelH) / nR))));
+  const gw = cell * nC, gh = cell * nR;
+  const ox = pad + labelW + Math.max(0, (width - pad * 2 - labelW - gw) / 2);
+  const oy = pad + labelH + Math.max(0, (height - pad * 2 - labelH - gh) / 2);
+  const labelSize = Math.max(7.5, Math.min(12, cell * 0.42 + 2, cell - 0.5));
+  const valueSize = cell >= 26 ? 11 : cell >= 19 ? 9.5 : 0;
+
+  const root = graphLayer.append("g").attr("class", "mx");
+
+  // axis captions in the free top-left corner
+  const capL1 = (view) => {
+    const on = L1_ORDER.filter((c) => !view.showL1 || view.showL1.has(c)).map((c) => (L1_LABELS[c] || c).split(" · ")[0]);
+    return on.length === L1_ORDER.length ? "all" : on.join(", ");
+  };
+  root.append("text").attr("class", "mx-caption").attr("x", ox - labelW).attr("y", oy - labelH + 4)
+    .text(`↓ Rows: ${capL1(state.matrix.rows)} (${nR})`);
+  root.append("text").attr("class", "mx-caption").attr("x", ox - labelW).attr("y", oy - labelH + 20)
+    .text(`→ Columns: ${capL1(state.matrix.cols)} (${nC})`);
+  root.append("text").attr("class", "mx-caption mx-caption-sub").attr("x", ox - labelW).attr("y", oy - labelH + 36)
+    .text(`Cell: ${M.label}${state.matrix.measure === "rowpct" ? " (%)" : ""}`);
+
+  const rowLab = root.append("g").selectAll("g").data(r.rowTags).join("g")
+    .attr("class", "mx-row-label")
+    .attr("transform", (d, i) => `translate(${ox - 6},${oy + i * cell + cell / 2})`);
+  rowLab.append("rect").attr("x", 1).attr("y", -cell / 2 + 2).attr("width", 3).attr("height", cell - 4)
+    .attr("fill", (d) => matrixTagColor(d));
+  rowLab.append("text").attr("x", -4).attr("y", labelSize * 0.36).attr("text-anchor", "end")
+    .attr("font-size", `${labelSize}px`).text((d) => `${d} ${r.freq.get(d)}`);
+
+  const colLab = root.append("g").selectAll("g").data(r.colTags).join("g")
+    .attr("class", "mx-col-label")
+    .attr("transform", (d, j) => `translate(${ox + j * cell + cell / 2},${oy - 6})`);
+  colLab.append("rect").attr("x", -cell / 2 + 2).attr("y", 1).attr("width", cell - 4).attr("height", 3)
+    .attr("fill", (d) => matrixTagColor(d));
+  colLab.append("text").attr("transform", "rotate(-55)").attr("x", 4).attr("y", labelSize * 0.36)
+    .attr("font-size", `${labelSize}px`).text((d) => `${d} ${r.freq.get(d)}`);
+
+  const cells = [];
+  r.rowTags.forEach((a, i) => r.colTags.forEach((b, j) => {
+    cells.push({ i, j, a, b, n: r.C[i][j], v: matrixValue(r, i, j), diag: a === b });
+  }));
+  const cg = root.append("g").attr("class", "mx-cells").selectAll("g").data(cells).join("g")
+    .attr("class", (d) => `mx-cell${d.diag ? " mx-diag" : ""}`)
+    .attr("transform", (d) => `translate(${ox + d.j * cell},${oy + d.i * cell})`)
+    .on("mouseenter", function (event, d) {
+      d3.select(this).raise().classed("mx-hover", true);
+      markMatrixCross(d.i, d.j);
+      showMatrixTooltip(event, d);
+    })
+    .on("mousemove", (event) => moveNodeTooltip(event))
+    .on("mouseleave", function () {
+      d3.select(this).classed("mx-hover", false);
+      markMatrixCross(null, null);
+      hideNodeTooltip();
+    })
+    .on("click", (event, d) => { event.stopPropagation(); if (!d.diag) showMatrixInspector(d.a, d.b); });
+
+  cg.append("rect").attr("x", 1).attr("y", 1).attr("width", cell - 2).attr("height", cell - 2).attr("rx", Math.min(4, cell / 6))
+    .attr("fill", (d) => d.diag ? "#fff" : d.n === 0 ? "#f7f4f2" : sc.color(d.v)) // never together = neutral, not "low lift"
+    .attr("opacity", (d) => (!d.diag && sc.kind === "div" && d.n < MATRIX_MIN_SHARED ? 0.38 : 1));
+  if (valueSize) {
+    cg.filter((d) => d.diag || d.n > 0).append("text")
+      .attr("x", cell / 2).attr("y", cell / 2 + valueSize * 0.36).attr("text-anchor", "middle")
+      .attr("font-size", `${valueSize}px`)
+      .attr("class", (d) => d.diag ? "mx-v mx-v-diag" : sc.dark(d.v) ? "mx-v mx-v-light" : "mx-v")
+      .attr("opacity", (d) => (!d.diag && sc.kind === "div" && d.n < MATRIX_MIN_SHARED ? 0.6 : 1))
+      .text((d) => (d.diag ? r.freq.get(d.a) : M.fmt(d.v)));
+  }
+}
+
+function markMatrixCross(i, j) {
+  graphLayer.selectAll("g.mx-row-label").classed("mx-hl", (d, k) => k === i);
+  graphLayer.selectAll("g.mx-col-label").classed("mx-hl", (d, k) => k === j);
+}
+
+// All four measures for one pair, from the counts.
+function matrixPairStats(a, b) {
+  const r = state.matrix.result;
+  const ids = r.ids.filter((id) => { const s = state.tagsByWork.get(id); return s.has(a) && s.has(b); });
+  const n = ids.length, fa = r.freq.get(a), fb = r.freq.get(b), N = r.N;
+  return {
+    ids, n, fa, fb, N,
+    rowpct: fa ? n / fa : 0, colpct: fb ? n / fb : 0,
+    jaccard: fa + fb - n ? n / (fa + fb - n) : 0,
+    lift: fa && fb ? (n * N) / (fa * fb) : 0,
+    expected: (fa * fb) / N
+  };
+}
+
+function showMatrixTooltip(event, d) {
+  const r = state.matrix.result;
+  let html;
+  if (d.diag) {
+    html = `<strong>#${escapeHtml(d.a)}</strong><br>On ${r.freq.get(d.a)} of ${r.N} works (same hashtag on both axes)`;
+  } else {
+    const s = matrixPairStats(d.a, d.b);
+    html = `<strong>#${escapeHtml(d.a)} × #${escapeHtml(d.b)}</strong><br>` +
+      `Both: <strong>${s.n}</strong> works (expected by chance ${s.expected.toFixed(1)})<br>` +
+      `${Math.round(s.rowpct * 100)}% of #${escapeHtml(d.a)} works · ${Math.round(s.colpct * 100)}% of #${escapeHtml(d.b)} works<br>` +
+      `Jaccard ${s.jaccard.toFixed(2)} · Lift ${s.lift.toFixed(2)}` +
+      (s.n ? `<br><span class="mx-tip-hint">Click to list the works</span>` : "");
+  }
+  d3.select("#node-tooltip").classed("hidden", false).html(html);
+  moveNodeTooltip(event);
+}
+
+function showMatrixInspector(a, b) {
+  const s = matrixPairStats(a, b);
+  const works = s.ids.map((id) => state.worksById.get(id)).filter(Boolean)
+    .sort((x, y) => (+x.rank || 999) - (+y.rank || 999));
+  const list = works.length
+    ? `<ol class="mx-work-list">${works.map((w) => `<li><button type="button" class="mx-work" data-id="${escapeHtml(w.work_id)}">#${escapeHtml(w.rank)} ${escapeHtml(w.title || w.work_id)}</button></li>`).join("")}</ol>`
+    : `<p class="small-note">No work carries both hashtags.</p>`;
+  d3.select("#inspector").html(`
+    <div class="inspector-card">
+      <h3>#${escapeHtml(a)} × #${escapeHtml(b)}</h3>
+      <table class="an-table dm-inspect-table">
+        <tbody>
+          <tr><td>Works with both</td><td class="num"><strong>${s.n}</strong> of ${s.N}</td></tr>
+          <tr><td>Expected if unrelated</td><td class="num">${s.expected.toFixed(1)}</td></tr>
+          <tr><td>% of #${escapeHtml(a)} works (${s.fa})</td><td class="num">${(s.rowpct * 100).toFixed(0)}%</td></tr>
+          <tr><td>% of #${escapeHtml(b)} works (${s.fb})</td><td class="num">${(s.colpct * 100).toFixed(0)}%</td></tr>
+          <tr><td>Jaccard</td><td class="num">${s.jaccard.toFixed(2)}</td></tr>
+          <tr><td>Lift</td><td class="num">${s.lift.toFixed(2)}</td></tr>
+        </tbody>
+      </table>
+      <div class="an-sub" style="margin-top:10px">Works with both</div>
+      ${list}
+    </div>`);
+  d3.selectAll("#inspector .mx-work").on("click", function () { openWorkCard(this.dataset.id); });
+}
+
+function setupMatrixControls() {
+  if (d3.select("#mx-measure").empty()) return;
+  d3.selectAll("#mx-measure button").on("click", function () {
+    if (state.matrix.measure === this.dataset.measure) return;
+    state.matrix.measure = this.dataset.measure;
+    updateNetwork();
+  });
+  renderMatrixAxisFilters();
+  d3.select("#mx-swap").on("click", () => {
+    const m = state.matrix;
+    [m.rows, m.cols] = [m.cols, m.rows];
+    renderMatrixAxisFilters();
+    updateNetwork();
+  });
+  d3.selectAll("#mx-presets button").on("click", function () {
+    const [rows, cols] = this.dataset.preset.split(">");
+    const set = (v) => (v === "all" ? null : new Set(v.split("+")));
+    state.matrix.rows = { showL1: set(rows), showL2: null };
+    state.matrix.cols = { showL1: set(cols), showL2: null };
+    renderMatrixAxisFilters();
+    updateNetwork();
+  });
+  d3.select("#mx-scope").property("value", state.matrix.scope).on("change", function () {
+    state.matrix.scope = this.value;
+    updateNetwork();
+  });
+  const categories = Array.from(new Set(state.metadata.map((d) => d.category))).sort();
+  d3.select("#mx-category").selectAll("option").data(categories).join("option")
+    .attr("value", (d) => d).text((d) => formatCategory(d));
+  const focusCat = state.metaByTag.get(state.matrix.focus)?.category;
+  if (focusCat) d3.select("#mx-category").property("value", focusCat);
+  d3.select("#mx-category").on("change", updateMatrixTagDropdown);
+  updateMatrixTagDropdown();
+  d3.select("#mx-set").on("click", () => {
+    const tag = d3.select("#mx-tag").property("value");
+    if (!tag || tag === state.matrix.focus) return;
+    state.matrix.focus = tag;
+    updateNetwork();
+  });
+  d3.select("#mx-min").property("value", String(state.matrix.minWorks)).on("change", function () {
+    state.matrix.minWorks = +this.value;
+    updateNetwork();
+  });
+  d3.select("#mx-sort").property("value", state.matrix.sort).on("change", function () {
+    state.matrix.sort = this.value;
+    updateNetwork();
+  });
+  d3.select("#mx-romance").property("checked", state.matrix.includeRomance).on("change", function () {
+    state.matrix.includeRomance = this.checked;
+    updateNetwork();
+  });
+  d3.select("#mx-download").on("click", downloadMatrixCSV);
+}
+
+function renderMatrixAxisFilters() {
+  buildLayerCheckboxes("#mx-r-l1", "#mx-r-l2", state.matrix.rows, updateNetwork);
+  buildLayerCheckboxes("#mx-c-l1", "#mx-c-l2", state.matrix.cols, updateNetwork);
+}
+
+function updateMatrixTagDropdown() {
+  const cat = d3.select("#mx-category").property("value");
+  const tags = Array.from(state.frequencyByTag.keys())
+    .filter((t) => (state.metaByTag.get(t)?.category || "unknown") === cat)
+    .sort((x, y) => (state.frequencyByTag.get(y) - state.frequencyByTag.get(x)) || x.localeCompare(y, "ko"));
+  d3.select("#mx-tag").selectAll("option").data(tags).join("option")
+    .attr("value", (d) => d).text((d) => `${d} (${state.frequencyByTag.get(d)})`);
+  if (tags.includes(state.matrix.focus)) d3.select("#mx-tag").property("value", state.matrix.focus);
+}
+
+// Off-diagonal pairs, each unordered pair once, strongest first by the current measure.
+function matrixTopPairs(r, limit = 12) {
+  const seen = new Set(), out = [];
+  r.rowTags.forEach((a, i) => r.colTags.forEach((b, j) => {
+    if (a === b || r.C[i][j] < MATRIX_MIN_SHARED) return;
+    const key = a < b ? `${a}\u0001${b}` : `${b}\u0001${a}`;
+    if (state.matrix.measure !== "rowpct") { if (seen.has(key)) return; seen.add(key); }
+    out.push({ a, b, i, j, n: r.C[i][j], v: matrixValue(r, i, j) });
+  }));
+  return out.sort((x, y) => (y.v - x.v) || (y.n - x.n)).slice(0, limit);
+}
+
+function renderMatrixPanel() {
+  const r = state.matrix.result;
+  if (!r) return;
+  const m = state.matrix;
+  const M = MATRIX_MEASURES[m.measure];
+  d3.selectAll("#mx-measure button")
+    .classed("active", function () { return this.dataset.measure === m.measure; })
+    .attr("aria-pressed", function () { return this.dataset.measure === m.measure ? "true" : "false"; });
+  d3.select("#mx-measure-help").html(M.help);
+  d3.select("#mx-focus-block").classed("hidden", m.scope !== "focus");
+  const fm = state.metaByTag.get(m.focus);
+  d3.select("#mx-focus-current").html(
+    `<span class="cat-dot" style="background:${categoryColor(fm?.category)}"></span>${escapeHtml(m.focus)}`);
+
+  // colour key
+  const scale = d3.select("#mx-scale");
+  if (r.rowTags.length && r.colTags.length) {
+    const sc = matrixScale(r);
+    if (sc.kind === "div") {
+      scale.html(`<div class="mx-scale-bar" style="background:linear-gradient(90deg,${sc.color(0.25)},${sc.color(1)},${sc.color(4)})"></div>
+        <div class="mx-scale-ticks"><span>¼ or less</span><span>1 = chance</span><span>4 or more</span></div>`);
+    } else {
+      const top = m.measure === "rowpct" ? `${Math.round(sc.max * 100)}%` : M.fmt(sc.max);
+      scale.html(`<div class="mx-scale-bar" style="background:linear-gradient(90deg,${sc.color(0)},${sc.color(sc.max / 2)},${sc.color(sc.max)})"></div>
+        <div class="mx-scale-ticks"><span>0</span><span>${top} (highest pair here)</span></div>`);
+    }
+  } else scale.html("");
+
+  const shared = r.rowTags.reduce((acc, a, i) => acc + r.colTags.filter((b, j) => a !== b && r.C[i][j] > 0).length, 0);
+  const cellsN = r.rowTags.reduce((acc, a) => acc + r.colTags.filter((b) => b !== a).length, 0);
+  const scopeText = m.scope === "focus"
+    ? `works with #${escapeHtml(m.focus)} (#${escapeHtml(m.focus)} itself is left out, since every one of these works has it)`
+    : "all works with hashtags";
+  d3.select("#mx-summary").html(r.rowTags.length && r.colTags.length
+    ? `<strong>${r.rowTags.length}</strong> row × <strong>${r.colTags.length}</strong> column hashtags over
+       <strong>${r.N}</strong> ${scopeText}. ${shared} of ${cellsN} pairs appear together on at least one work.
+       The number after each hashtag is how many works carry it. Hover a cell for all four values; click it to list the works.`
+    : "Switch on at least one category for both rows and columns.");
+
+  const top = matrixTopPairs(r);
+  const host = d3.select("#mx-top");
+  host.html(top.length
+    ? `<p class="small-note">By ${escapeHtml(M.label)}, among pairs that share at least ${MATRIX_MIN_SHARED} works.</p>
+       <ol class="mx-top-list">${top.map((p) => `<li data-i="${p.i}" data-j="${p.j}">
+         <span class="mx-top-pair"><span class="cat-dot" style="background:${matrixTagColor(p.a)}"></span>${escapeHtml(p.a)}
+         <span class="mx-x">×</span><span class="cat-dot" style="background:${matrixTagColor(p.b)}"></span>${escapeHtml(p.b)}</span>
+         <span class="mx-top-v">${m.measure === "rowpct" ? Math.round(p.v * 100) + "%" : M.fmt(p.v)}</span>
+         <span class="mx-top-n">${p.n} works</span></li>`).join("")}</ol>`
+    : `<p class="small-note">No pair shares ${MATRIX_MIN_SHARED} or more works with these settings.</p>`);
+  host.selectAll("li")
+    .on("mouseenter", function () {
+      const i = +this.dataset.i, j = +this.dataset.j;
+      markMatrixCross(i, j);
+      graphLayer.selectAll("g.mx-cell").classed("mx-hover", (d) => d.i === i && d.j === j).filter((d) => d.i === i && d.j === j).raise();
+    })
+    .on("mouseleave", () => { markMatrixCross(null, null); graphLayer.selectAll("g.mx-cell").classed("mx-hover", false); })
+    .on("click", function () {
+      const i = +this.dataset.i, j = +this.dataset.j;
+      showMatrixInspector(r.rowTags[i], r.colTags[j]);
+    });
+}
+
+function downloadMatrixCSV() {
+  const r = computeMatrix();
+  if (!r.rowTags.length || !r.colTags.length) return;
+  const m = state.matrix;
+  const M = MATRIX_MEASURES[m.measure];
+  const axisText = (view) => {
+    const l1 = L1_ORDER.filter((c) => !view.showL1 || view.showL1.has(c)).map(formatCategory).join(" / ");
+    const l2 = view.showL2 ? L2_ORDER.filter((c) => view.showL2.has(c)).join(" / ") : "all";
+    return `layer 1: ${l1}; layer 2: ${l2}`;
+  };
+  const block = (measure) => {
+    const MM = MATRIX_MEASURES[measure];
+    return [
+      [`${MM.label}${measure === "rowpct" ? " (%)" : ""}: rows ↓ / columns →`, ...r.colTags],
+      ...r.rowTags.map((a, i) => [a, ...r.colTags.map((b, j) => MM.csv(matrixValue(r, i, j, measure)))])
+    ];
+  };
+  const rows = [
+    ["# co-occurrence matrix: a cell counts works that carry both hashtags"],
+    ["# works", m.scope === "focus" ? `only works with ${m.focus} (focus tag left out)` : "all works with hashtags", r.N],
+    ["# rows", axisText(m.rows)],
+    ["# columns", axisText(m.cols)],
+    ["# hashtags on at least", m.minWorks, "works"],
+    ["# 로맨스판타지 included", m.includeRomance ? "yes" : "no"],
+    ["# cell value", M.label],
+    [],
+    ["hashtag", "works", "axis"],
+    ...r.rowTags.map((t) => [t, r.freq.get(t), "row"]),
+    ...r.colTags.map((t) => [t, r.freq.get(t), "column"]),
+    [],
+    ...block(m.measure)
+  ];
+  if (m.measure !== "count") rows.push([], ...block("count"));
+  const part = m.scope === "focus" ? `_${m.focus}` : "_all";
+  downloadCSV(`matrix_${m.measure}${part}.csv`, rows);
 }
 
 // ======================================================================
