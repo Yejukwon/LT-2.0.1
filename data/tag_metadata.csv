@@ -73,7 +73,7 @@
 악녀,female_protagonist,여주,감정·태도,,악녀 빙의 등 플롯상의 위치로 봄
 연하남,male_protagonist,남주,관계성,,
 자상녀,female_protagonist,여주,감정·태도,,
-전문직물,genre_plot,장르·플롯·배경,능력·생산성,,
+전문직물,female_protagonist,여주,능력·생산성,,
 중세물,genre_plot,장르·플롯·배경,장르·배경·분위기,,
 짝사랑,relationship,관계,관계성,,
 친구>연인,relationship,관계,관계성,,
